@@ -13,22 +13,24 @@
 
 - feature cube address generate 
 
+
 ## Tensor descriptor
-
-### skip/stride
-
-  * unit skip
-  * slice skip
-  * plane skip
-  * cube skip
-
 
 ### num/dim
 
-  * unit number
-  * slice number
-  * plane number
-  * cube number
+  * byte number:  byteNum = 0 < byte number << 64
+  * unit number:  unitNum
+  * slice number: sliceNum
+  * plane number: planeNum
+  * cube number:  cubeNum
+
+### skip/stride
+
+  * unitSkip  = `1<<static_cast<int>(ceil(log2(tensorDesc.byteNum)))`
+  * sliceSkip = unitNum  \* unitSkip;
+  * planeSkip = sliceNum \* sliceSkip;
+  * cubeSkip  = planeNum \* planeSkip;
+
 
 ![](docs/cube.svg)
 

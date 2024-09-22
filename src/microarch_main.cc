@@ -13,6 +13,7 @@ class tensor {
   public:
     struct micrarchTensorDescriptor{
       int baseAddr;
+      int byteNum;
       int unitNum;
       int sliceNum;
       int planeNum;
@@ -28,12 +29,13 @@ class tensor {
 
     tensor(){
       tensorDesc.baseAddr  = genRandomData(100) * 64;
+      tensorDesc.byteNum   = genRandomData(64);
       tensorDesc.unitNum   = genRandomData(40);
       tensorDesc.sliceNum  = genRandomData(10);
       tensorDesc.planeNum  = genRandomData(20);
       tensorDesc.cubeNum   = genRandomData(6);
 
-      tensorDesc.unitSkip  = 1<<static_cast<int>(ceil(log2(genRandomData(64))));
+      tensorDesc.unitSkip  = 1<<static_cast<int>(ceil(log2(tensorDesc.byteNum)));
       tensorDesc.sliceSkip = tensorDesc.unitNum  * tensorDesc.unitSkip;
       tensorDesc.planeSkip = tensorDesc.sliceNum * tensorDesc.sliceSkip;
       tensorDesc.cubeSkip  = tensorDesc.planeNum * tensorDesc.planeSkip;
@@ -50,7 +52,12 @@ class tensor {
     }
 
     void stringTensor(micrarchTensorDescriptor myTensorDesc){
-      cout <<"unitNum:"   << myTensorDesc.unitNum <<", sliceNum:" << myTensorDesc.sliceNum <<", planeNum:" << myTensorDesc.planeNum <<", cubeNum:"<< myTensorDesc.cubeNum << endl;
+      cout <<"byteNum:"  << myTensorDesc.byteNum  <<
+           ", unitNum:"  << myTensorDesc.unitNum  <<
+           ", sliceNum:" << myTensorDesc.sliceNum <<
+           ", planeNum:" << myTensorDesc.planeNum <<
+           ", cubeNum:"  << myTensorDesc.cubeNum << endl;
+
       cout <<"unitSkip : "<< myTensorDesc.unitSkip  << endl;
       cout <<"sliceSkip: "<< myTensorDesc.sliceSkip << endl;
       cout <<"planeSkip: "<< myTensorDesc.planeSkip << endl;
@@ -60,6 +67,7 @@ class tensor {
 
     void genSubTensor(){
       subTensorDesc.baseAddr  = tensorDesc.baseAddr;
+      subTensorDesc.byteNum   = genRandomData(tensorDesc.byteNum);
       subTensorDesc.unitNum   = genRandomData(tensorDesc.unitNum);
       subTensorDesc.sliceNum  = genRandomData(tensorDesc.sliceNum);
       subTensorDesc.planeNum  = genRandomData(tensorDesc.planeNum);
