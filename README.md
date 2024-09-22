@@ -1,22 +1,26 @@
 # README
 
-## addr info
+## quickly start
 
-```
-[5:0]   - byteIdx
-[19:6]  - entryIdx
-[22:20] - bankIdx
-```
+```bash
+$ cd build
+$ cmake ..
+$ make
 
+$ ls -l
+```
 
 ## function
 
 - feature cube address generate 
+- Abstraction at different levels
 
 
 ## Tensor descriptor
 
-### num/dim
+### microarch tensor
+
+#### num/dim
 
   * byte number:  byteNum = 0 < byte number << 64
   * unit number:  unitNum
@@ -24,7 +28,7 @@
   * plane number: planeNum
   * cube number:  cubeNum
 
-### skip/stride
+#### skip/stride
 
   * unitSkip  = `1<<static_cast<int>(ceil(log2(tensorDesc.byteNum)))`
   * sliceSkip = unitNum  \* unitSkip;
@@ -35,8 +39,14 @@
 ![](docs/cube.svg)
 
 
-## run
+### arch tensor
 
-```bash
-$ make
-```
+
+#### father tensor
+
+
+#### sub tensor
+
+
+#### convert to microarch tensor
+
