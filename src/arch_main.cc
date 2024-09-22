@@ -10,4 +10,14 @@
 #include "arch_tensor.hh"
 
 int main(){
+  archTensor myTensor;
+
+  myTensor.convertTesor2MicroarchTensorDescriptor();
+  myTensor.fatherMicroarchTensor->traversalTensorAddrPoint(myTensor.fatherMicroarchTensor->tensorDesc);
+
+  myTensor.genSubTensor();
+  myTensor.convertSubTesor2MicroarchTensorDescriptor();
+  myTensor.subMicroarchTensor->traversalTensorAddrPoint(myTensor.subMicroarchTensor->tensorDesc);
+
+  return 0;
 }

@@ -29,6 +29,8 @@ class archTensor {
 
     archTensorDescriptor tensorDesc;
     subArchTensorDescriptor subTensorDesc;
+    microarchTensor* fatherMicroarchTensor;
+    microarchTensor* subMicroarchTensor;
 
     archTensor(){
       tensorDesc.baseAddr  = genRandomData(100) * 64;
@@ -46,6 +48,8 @@ class archTensor {
     }
 
     ~archTensor(){
+      delete fatherMicroarchTensor;
+      delete subMicroarchTensor;
     }
 
     unsigned int genRandomData(unsigned int maxValue=10){
@@ -107,6 +111,7 @@ class archTensor {
       int sliceSkip = 0;
       int planeSkip = 0;
       int cubeSkip  = 0;
+      this->fatherMicroarchTensor = new microarchTensor (baseAddr, byteNum, unitNum, sliceNum, planeNum, cubeNum, unitSkip, sliceSkip, planeSkip, cubeSkip);
     }
 
     void convertSubTesor2MicroarchTensorDescriptor(){
@@ -122,11 +127,8 @@ class archTensor {
       int sliceSkip = 0;
       int planeSkip = 0;
       int cubeSkip  = 0;
-    }
 
-    int *traversalTensorAddrPoint(archTensorDescriptor myTensorDesc){
-      int *traversalAddr = new int[100];
-      return traversalAddr;
+      this->subMicroarchTensor = new microarchTensor (baseAddr, byteNum, unitNum, sliceNum, planeNum, cubeNum, unitSkip, sliceSkip, planeSkip, cubeSkip);
     }
 };
 

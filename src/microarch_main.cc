@@ -10,8 +10,8 @@
 #include "microarch_tensor.hh"
 
 int main(){
-
   microarchTensor myTensor;
+
   int *traversalAddr = myTensor.traversalTensorAddrPoint(myTensor.tensorDesc);
   int tensorAddrPointNum = myTensor.getTraversalAddrPointNum(myTensor.tensorDesc);
   myTensor.genSubTensor();
