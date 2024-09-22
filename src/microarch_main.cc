@@ -11,7 +11,7 @@ using namespace std;
 
 class tensor {
   public:
-    struct micrarchTensorDescriptor{
+    struct microarchTensorDescriptor{
       int baseAddr;
       int byteNum;
       int unitNum;
@@ -24,8 +24,8 @@ class tensor {
       int cubeSkip;
     };
 
-    micrarchTensorDescriptor tensorDesc;
-    micrarchTensorDescriptor subTensorDesc;
+    microarchTensorDescriptor tensorDesc;
+    microarchTensorDescriptor subTensorDesc;
 
     tensor(){
       tensorDesc.baseAddr  = genRandomData(100) * 64;
@@ -51,7 +51,7 @@ class tensor {
       return randomNum;
     }
 
-    void stringTensor(micrarchTensorDescriptor myTensorDesc){
+    void stringTensor(microarchTensorDescriptor myTensorDesc){
       cout <<"byteNum:"  << myTensorDesc.byteNum  <<
            ", unitNum:"  << myTensorDesc.unitNum  <<
            ", sliceNum:" << myTensorDesc.sliceNum <<
@@ -85,7 +85,7 @@ class tensor {
       stringTensor(subTensorDesc);
     }
 
-    int getTraversalAddrPointNum(micrarchTensorDescriptor myTensorDesc){
+    int getTraversalAddrPointNum(microarchTensorDescriptor myTensorDesc){
       return myTensorDesc.unitNum * myTensorDesc.sliceNum * myTensorDesc.planeNum * myTensorDesc.cubeNum;
     }
 
@@ -96,7 +96,7 @@ class tensor {
       return skipAddr;
     }
 
-    int *traversalTensorAddrPoint(micrarchTensorDescriptor myTensorDesc){
+    int *traversalTensorAddrPoint(microarchTensorDescriptor myTensorDesc){
       int *traversalAddr = new int[getTraversalAddrPointNum(myTensorDesc)];
 
       stringTensor(myTensorDesc);
