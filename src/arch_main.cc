@@ -1,44 +1,13 @@
-#include<stdio.h>
-#include<sstream>
-#include<iostream>
-#include<math.h>
+#include <stdio.h>
+#include <sstream>
+#include <iostream>
+#include <math.h>
+#include <cstdlib>
+#include <ctime>
+#include <cmath>
+#include <memory>
 
-using namespace std;
-
-const int ndim = 5;
-
-class tensor {
-  public:
-    struct archTensorDescriptor{
-      unsigned int coords[ndim];
-      unsigned int size[ndim];
-      unsigned int stride[ndim];
-    };
-
-    struct subArchTensorDescriptor{
-      unsigned int coords[ndim];
-      unsigned int range[ndim];
-      unsigned int traversal_stride[ndim];
-    };
-
-    archTensorDescriptor tensorDesc;
-    subArchTensorDescriptor subTensorDesc;
-
-    tensor(){
-    }
-
-    ~tensor(){
-    }
-
-    int *traversalTensorAddrPoint(archTensorDescriptor myTensorDesc){
-      int *traversalAddr = new int[100];
-      return traversalAddr;
-    }
-
-    void genMicroTensorDescriptor(){
-    }
-};
-
+#include "arch_tensor.hh"
 
 int main(){
 }
