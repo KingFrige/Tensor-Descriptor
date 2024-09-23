@@ -20,6 +20,15 @@ $ ls -l
 
 ### microarch tensor
 
+#### sram addr info
+
+```
+[5:0]   - byteIdx
+[19:6]  - entryIdx
+[22:20] - bankIdx
+```
+
+
 #### num/dim
 
   * byte number:  byteNum = 0 < byte number << 64
@@ -27,6 +36,7 @@ $ ls -l
   * slice number: sliceNum
   * plane number: planeNum
   * cube number:  cubeNum
+
 
 #### skip/stride
 
