@@ -24,7 +24,7 @@ class archTensor {
     struct subArchTensorDescriptor{
       unsigned int coords[ndim];
       unsigned int range[ndim];
-      unsigned int traversal_stride[ndim];
+      unsigned int traversalStride[ndim];
     };
 
     archTensorDescriptor tensorDesc;
@@ -62,17 +62,21 @@ class archTensor {
     void stringTensor(archTensorDescriptor myTensorDesc){
       cout << "baseAddr: " << myTensorDesc.baseAddr << endl;
       cout <<"myTensorDesc.dimension[0]:" << myTensorDesc.dimension[0] <<
-           ", myTensorDesc.dimension[1]:" << myTensorDesc.dimension[1] <<
-           ", myTensorDesc.dimension[2]:" << myTensorDesc.dimension[2] <<
-           ", myTensorDesc.dimension[3]:" << myTensorDesc.dimension[3] <<
-           ", myTensorDesc.dimension[4]:" << myTensorDesc.dimension[4] << endl;
+        ", myTensorDesc.dimension[1]:" << myTensorDesc.dimension[1] <<
+        ", myTensorDesc.dimension[2]:" << myTensorDesc.dimension[2] <<
+        ", myTensorDesc.dimension[3]:" << myTensorDesc.dimension[3] <<
+        ", myTensorDesc.dimension[4]:" << myTensorDesc.dimension[4] << endl;
 
       cout <<"myTensorDesc.stride[0]:" << myTensorDesc.stride[0] <<
-           ", myTensorDesc.stride[1]:" << myTensorDesc.stride[1] <<
-           ", myTensorDesc.stride[2]:" << myTensorDesc.stride[2] <<
-           ", myTensorDesc.stride[3]:" << myTensorDesc.stride[3] <<
-           ", myTensorDesc.stride[4]:" << myTensorDesc.stride[4] << endl;
+        ", myTensorDesc.stride[1]:" << myTensorDesc.stride[1] <<
+        ", myTensorDesc.stride[2]:" << myTensorDesc.stride[2] <<
+        ", myTensorDesc.stride[3]:" << myTensorDesc.stride[3] <<
+        ", myTensorDesc.stride[4]:" << myTensorDesc.stride[4] << endl;
       cout << "" << endl;
+    }
+
+    unsigned int max(unsigned int x, unsigned int y) {
+      return (x > y) ? x : y;
     }
 
     void genSubTensor(){
@@ -82,20 +86,17 @@ class archTensor {
       subTensorDesc.coords[3] = genRandomData(tensorDesc.dimension[3]);
       subTensorDesc.coords[4] = genRandomData(tensorDesc.dimension[4]);
 
-      subTensorDesc.range[0]  = genRandomData(tensorDesc.dimension[0]-subTensorDesc.coords[0]);
-      subTensorDesc.range[1]  = genRandomData(tensorDesc.dimension[1]-subTensorDesc.coords[1]);
-      subTensorDesc.range[2]  = genRandomData(tensorDesc.dimension[2]-subTensorDesc.coords[2]);
-      subTensorDesc.range[3]  = genRandomData(tensorDesc.dimension[3]-subTensorDesc.coords[3]);
-      subTensorDesc.range[4]  = genRandomData(tensorDesc.dimension[4]-subTensorDesc.coords[4]);
+      subTensorDesc.range[0]  = genRandomData(max(1, tensorDesc.dimension[0] - subTensorDesc.coords[0]));
+      subTensorDesc.range[1]  = genRandomData(max(1, tensorDesc.dimension[1] - subTensorDesc.coords[1]));
+      subTensorDesc.range[2]  = genRandomData(max(1, tensorDesc.dimension[2] - subTensorDesc.coords[2]));
+      subTensorDesc.range[3]  = genRandomData(max(1, tensorDesc.dimension[3] - subTensorDesc.coords[3]));
+      subTensorDesc.range[4]  = genRandomData(max(1, tensorDesc.dimension[4] - subTensorDesc.coords[4]));
 
-      subTensorDesc.traversal_stride[0] = 1;
-      subTensorDesc.traversal_stride[1] = 1;
-      subTensorDesc.traversal_stride[2] = 1;
-      subTensorDesc.traversal_stride[3] = 1;
-      subTensorDesc.traversal_stride[4] = 1;
-
-      cout <<"tensor descriptor:" << endl;
-      stringTensor(tensorDesc);
+      subTensorDesc.traversalStride[0] = 1;
+      subTensorDesc.traversalStride[1] = 1;
+      subTensorDesc.traversalStride[2] = 1;
+      subTensorDesc.traversalStride[3] = 1;
+      subTensorDesc.traversalStride[4] = 1;
     }
 
     void convertTesor2MicroarchTensorDescriptor(){
@@ -111,15 +112,15 @@ class archTensor {
       int sliceSkip = tensorDesc.stride[1];
       int planeSkip = tensorDesc.stride[2];
       int cubeSkip  = tensorDesc.stride[3];
-      this->fatherMicroarchTensor = new microarchTensor (baseAddr, byteNum, unitNum, sliceNum, planeNum, cubeNum, unitSkip, sliceSkip, planeSkip, cubeSkip);
+      this->fatherMicroarchTensor = new microarchTensor(baseAddr, byteNum, unitNum, sliceNum, planeNum, cubeNum, unitSkip, sliceSkip, planeSkip, cubeSkip);
     }
 
     void convertSubTesor2MicroarchTensorDescriptor(){
       int baseAddr = subTensorDesc.coords[0] * tensorDesc.stride[0] +
-                     subTensorDesc.coords[1] * tensorDesc.stride[1] + 
-                     subTensorDesc.coords[2] * tensorDesc.stride[2] +
-                     subTensorDesc.coords[3] * tensorDesc.stride[3] +
-                     subTensorDesc.coords[4] * tensorDesc.stride[4];
+        subTensorDesc.coords[1] * tensorDesc.stride[1] +
+        subTensorDesc.coords[2] * tensorDesc.stride[2] +
+        subTensorDesc.coords[3] * tensorDesc.stride[3] +
+        subTensorDesc.coords[4] * tensorDesc.stride[4];
 
       int byteNum  = subTensorDesc.range[0];
       int unitNum  = subTensorDesc.range[1];
@@ -127,12 +128,12 @@ class archTensor {
       int planeNum = subTensorDesc.range[3];
       int cubeNum  = subTensorDesc.range[4];
 
-      int unitSkip  = tensorDesc.stride[0];
-      int sliceSkip = tensorDesc.stride[1];
-      int planeSkip = tensorDesc.stride[2];
-      int cubeSkip  = tensorDesc.stride[3];
+      int unitSkip  = tensorDesc.stride[0] * subTensorDesc.traversalStride[0];
+      int sliceSkip = tensorDesc.stride[1] * subTensorDesc.traversalStride[1];
+      int planeSkip = tensorDesc.stride[2] * subTensorDesc.traversalStride[2];
+      int cubeSkip  = tensorDesc.stride[3] * subTensorDesc.traversalStride[3];
 
-      this->subMicroarchTensor = new microarchTensor (baseAddr, byteNum, unitNum, sliceNum, planeNum, cubeNum, unitSkip, sliceSkip, planeSkip, cubeSkip);
+      this->subMicroarchTensor = new microarchTensor(baseAddr, byteNum, unitNum, sliceNum, planeNum, cubeNum, unitSkip, sliceSkip, planeSkip, cubeSkip);
     }
 };
 
