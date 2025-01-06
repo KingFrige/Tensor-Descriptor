@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <sstream>
 #include <iostream>
+#include <iomanip>
 #include <math.h>
 #include <cstdlib>
 #include <ctime>
@@ -62,7 +63,8 @@ class microarchTensor {
       std::srand(static_cast<unsigned int>(std::time(0)));
       unsigned int randomNum = std::rand() % maxValue + 1;
 
-      return randomNum; }
+      return randomNum;
+    }
 
     void stringTensor(microarchTensorDescriptor myTensorDesc){
       cout <<"baseAddr: " << myTensorDesc.baseAddr << endl;
@@ -136,11 +138,8 @@ class microarchTensor {
             sliceAddr = getSkipAddr(sliceAddr, myTensorDesc.sliceSkip);
 
             for(int unitCnt=0; unitCnt<myTensorDesc.unitNum;unitCnt++){
-              cout << "unitCnt = " << unitCnt << endl;
               int idx = cubeCnt*myTensorDesc.planeNum*myTensorDesc.sliceNum*myTensorDesc.unitNum + planeCnt*myTensorDesc.sliceNum*myTensorDesc.unitNum + sliceCnt*myTensorDesc.unitNum + unitCnt;
-
-              cout << "cubeCnt= " << cubeCnt << ", planeCnt = " << planeCnt << ", sliceCnt = " << sliceCnt << ", unitCnt = " << unitCnt << endl;
-              cout << "idx = " << idx << ", unitAddr = " << dec << unitAddr << endl;
+              cout <<"unitCnt = " << setw(4) << unitCnt<< ", sliceCnt = " << sliceCnt << ", planeCnt = " << planeCnt << ", cubeCnt= " << cubeCnt << ", idx = " << setw(8) << idx << ", unitAddr = 0x" << hex << unitAddr << dec << endl;
               traversalAddr[idx] = unitAddr;
               unitAddr += myTensorDesc.unitSkip;
             }

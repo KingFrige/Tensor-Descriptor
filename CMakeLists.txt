@@ -7,8 +7,13 @@ project(tensor-descriptor)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+add_subdirectory(ext/nlohmann_json ${CMAKE_BINARY_DIR}/nlohmann_json)
+
 add_executable(archTensorDescriptor src/arch_main.cc)
 target_compile_options(archTensorDescriptor PRIVATE -Wall -Wextra -g -O0 -ggdb)
 
 add_executable(microarchTensorDescriptor src/microarch_main.cc)
 target_compile_options(microarchTensorDescriptor PRIVATE -Wall -Wextra -g -O0 -ggdb)
+
+add_executable(microarchTool src/microarch_tool.cc)
+target_compile_options(microarchTool PRIVATE -Wall -Wextra -g -O0 -ggdb)
