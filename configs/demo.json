@@ -1,0 +1,12 @@
+{
+  "baseAddr":0,
+  "byteNum":1,
+  "unitNum":1,
+  "sliceNum":1,
+  "planeNum":1,
+  "cubeNum":1,
+  "unitSkip":8,
+  "sliceSkip":8,
+  "planeSkip":8,
+  "cubeSkip":0
+}

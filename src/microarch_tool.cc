@@ -1,11 +1,13 @@
 #include <stdio.h>
 #include <sstream>
 #include <iostream>
+#include <fstream>
 #include <math.h>
 #include <cstdlib>
 #include <ctime>
 #include <cmath>
 #include <memory>
+#include <nlohmann/json.hpp>
 
 #include "microarch_tensor.hh"
 
@@ -22,27 +24,38 @@ struct microarchTensorDescriptor{
   int cubeSkip;
 };
 
-unsigned int genRandomData(unsigned int maxValue=10){
-  std::srand(static_cast<unsigned int>(std::time(0)));
-  unsigned int randomNum = std::rand() % maxValue + 1;
+nlohmann::json readJSONFile(std::string fileName){
+  std::ifstream jsonFile(fileName);
+  nlohmann::json result;
 
-  return randomNum;
+  if (jsonFile.is_open()) {
+    try {
+      result = nlohmann::json::parse(jsonFile);
+    } catch (const nlohmann::json::parse_error& ex) {
+      std::cerr << "JSON parse error: " << ex.what() << std::endl;
+    }
+    jsonFile.close();
+  } else {
+    std::cerr << "Unable to open file." << std::endl;
+  }
+
+  return result;
 }
 
 int main(){
   microarchTensorDescriptor tensorDesc;
 
-  tensorDesc.baseAddr  = genRandomData(100) * 64;
-  tensorDesc.byteNum   = genRandomData(64);
-  tensorDesc.unitNum   = genRandomData(40);
-  tensorDesc.sliceNum  = genRandomData(10);
-  tensorDesc.planeNum  = genRandomData(20);
-  tensorDesc.cubeNum   = genRandomData(6);
+  nlohmann::json configJSON = readJSONFile("../configs/demo.json");
 
-  tensorDesc.unitSkip  = 1<<static_cast<int>(ceil(log2(tensorDesc.byteNum)));
-  tensorDesc.sliceSkip = tensorDesc.unitNum  * tensorDesc.unitSkip;
-  tensorDesc.planeSkip = tensorDesc.sliceNum * tensorDesc.sliceSkip;
-  tensorDesc.cubeSkip  = tensorDesc.planeNum * tensorDesc.planeSkip;
+  tensorDesc.baseAddr  = configJSON["baseAddr"];
+  tensorDesc.byteNum   = configJSON["byteNum"];
+  tensorDesc.unitNum   = configJSON["unitNum"];
+  tensorDesc.sliceNum  = configJSON["sliceNum"];
+  tensorDesc.planeNum  = configJSON["planeNum"];
+  tensorDesc.unitSkip  = configJSON["unitSkip"];
+  tensorDesc.sliceSkip = configJSON["sliceSkip"];
+  tensorDesc.planeSkip = configJSON["planeSkip"];
+  tensorDesc.cubeSkip  = configJSON["cubeSkip"];
 
   microarchTensor myTensor(tensorDesc.baseAddr, tensorDesc.byteNum, tensorDesc.unitNum, tensorDesc.sliceNum, tensorDesc.planeNum, tensorDesc.cubeNum, tensorDesc.unitSkip, tensorDesc.sliceSkip, tensorDesc.planeSkip, tensorDesc.cubeSkip);
 

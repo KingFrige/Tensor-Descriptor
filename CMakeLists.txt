@@ -16,4 +16,5 @@ add_executable(microarchTensorDescriptor src/microarch_main.cc)
 target_compile_options(microarchTensorDescriptor PRIVATE -Wall -Wextra -g -O0 -ggdb)
 
 add_executable(microarchTool src/microarch_tool.cc)
+target_link_libraries(microarchTool PRIVATE nlohmann_json)
 target_compile_options(microarchTool PRIVATE -Wall -Wextra -g -O0 -ggdb)
