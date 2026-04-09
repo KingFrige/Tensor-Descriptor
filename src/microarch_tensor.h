@@ -70,7 +70,9 @@ int microarch_tensor_get_traversal_count(const microarch_tensor_descriptor_t* de
 int* microarch_tensor_traversal(const microarch_tensor_descriptor_t* myTensorDesc);
 void microarch_tensor_print(const char* name, const microarch_tensor_descriptor_t* desc);
 
-int microarch_constraints_convert(const microarch_tensor_descriptor_t* archDesc,
+int microarch_constraints_convert(const unsigned int* archDim,
+                                  const unsigned int* archStride,
+                                  unsigned int baseAddr,
                                   const microarch_constraints_t* constraints,
                                   const microarch_physical_limits_t* physicalLimits,
                                   microarch_conversion_result_t* result);

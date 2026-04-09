@@ -147,164 +147,157 @@ void microarch_tensor_print(const char* name, const microarch_tensor_descriptor_
     printf("\n");
 }
 
-static int check_byte_num_limit(int byteNum) {
-    if (byteNum > MAX_BYTE_NUM) {
-        return E_BYTE_NUM_EXCEEDED;
+static void compute_effective_limits_internal(const microarch_physical_limits_t* limits,
+                                               const microarch_constraints_t* constraints,
+                                               unsigned int* effMaxByte,
+                                               unsigned int* effMaxUnit,
+                                               unsigned int* effMaxSlice,
+                                               unsigned int* effMaxPlane,
+                                               unsigned int* effMaxCube) {
+    *effMaxByte = MAX_BYTE_NUM;
+    *effMaxUnit = DEFAULT_MAX_UNIT;
+    *effMaxSlice = DEFAULT_MAX_SLICE;
+    *effMaxPlane = DEFAULT_MAX_PLANE;
+    *effMaxCube = DEFAULT_MAX_CUBE;
+    
+    if (limits) {
+        *effMaxByte = limits->maxPhysicalByteNum > 0 ? limits->maxPhysicalByteNum : *effMaxByte;
+        *effMaxUnit = limits->maxPhysicalUnitNum > 0 ? limits->maxPhysicalUnitNum : *effMaxUnit;
+        *effMaxSlice = limits->maxPhysicalSliceNum > 0 ? limits->maxPhysicalSliceNum : *effMaxSlice;
+        *effMaxPlane = limits->maxPhysicalPlaneNum > 0 ? limits->maxPhysicalPlaneNum : *effMaxPlane;
+        *effMaxCube = limits->maxPhysicalCubeNum > 0 ? limits->maxPhysicalCubeNum : *effMaxCube;
     }
-    return E_SUCCESS;
+    
+    if (constraints) {
+        if (constraints->maxUnitNum > 0 && constraints->maxUnitNum < *effMaxUnit) *effMaxUnit = constraints->maxUnitNum;
+        if (constraints->maxSliceNum > 0 && constraints->maxSliceNum < *effMaxSlice) *effMaxSlice = constraints->maxSliceNum;
+        if (constraints->maxPlaneNum > 0 && constraints->maxPlaneNum < *effMaxPlane) *effMaxPlane = constraints->maxPlaneNum;
+        if (constraints->maxCubeNum > 0 && constraints->maxCubeNum < *effMaxCube) *effMaxCube = constraints->maxCubeNum;
+    }
+    
+    if (*effMaxPlane == 0) *effMaxPlane = DEFAULT_MAX_PLANE;
+    if (*effMaxCube == 0) *effMaxCube = DEFAULT_MAX_CUBE;
 }
 
-static void normalize_dimensions(microarch_tensor_descriptor_t* desc) {
-    if (desc->byteNum <= 0) desc->byteNum = 1;
-    if (desc->unitNum <= 0) desc->unitNum = 1;
-    if (desc->sliceNum <= 0) desc->sliceNum = 1;
-    if (desc->planeNum <= 0) desc->planeNum = 1;
-    if (desc->cubeNum <= 0) desc->cubeNum = 1;
-}
-
-static int adjust_for_constraints(microarch_tensor_descriptor_t* desc, 
-                                   const microarch_constraints_t* constraints,
-                                   unsigned long long totalBytes) {
-    int changed = 0;
+static void expand_for_physical_limits(unsigned int* dim,
+                                       const microarch_physical_limits_t* limits,
+                                       const microarch_constraints_t* constraints) {
+    unsigned int maxByte, maxUnit, maxSlice, maxPlane, maxCube;
+    compute_effective_limits_internal(limits, constraints, &maxByte, &maxUnit, &maxSlice, &maxPlane, &maxCube);
     
-    if (constraints->maxUnitNum > 0 && desc->unitNum > (int)constraints->maxUnitNum) {
-        unsigned long long remaining = totalBytes / desc->unitNum;
-        desc->unitNum = constraints->maxUnitNum;
-        changed = 1;
+    unsigned int origByte = dim[0];
+    if (origByte == 0) origByte = 1;
+    
+    if (origByte > maxByte && maxByte > 0) {
+        int extraBytes = origByte - maxByte;
+        int extraUnits = (extraBytes + maxByte - 1) / maxByte;
+        dim[1] = dim[1] * (1 + extraUnits);
+        dim[0] = maxByte;
+        origByte = maxByte;
     }
     
-    if (constraints->maxSliceNum > 0 && desc->sliceNum > (int)constraints->maxSliceNum) {
-        desc->sliceNum = constraints->maxSliceNum;
-        changed = 1;
+    unsigned int newDim[5] = {dim[0], dim[1], dim[2], dim[3], dim[4]};
+    for (int i = 0; i < 5; i++) {
+        if (newDim[i] == 0) newDim[i] = 1;
     }
     
-    if (constraints->maxPlaneNum > 0 && desc->planeNum > (int)constraints->maxPlaneNum) {
-        desc->planeNum = constraints->maxPlaneNum;
-        changed = 1;
-    }
+    unsigned long long total = (unsigned long long)newDim[0] * newDim[1] * newDim[2] * newDim[3] * newDim[4];
+    unsigned long long needed = (total + newDim[0] - 1) / newDim[0];
+    unsigned long long current = needed;
     
-    if (constraints->maxCubeNum > 0 && desc->cubeNum > (int)constraints->maxCubeNum) {
-        desc->cubeNum = constraints->maxCubeNum;
-        changed = 1;
-    }
+    newDim[1] = (unsigned int)((current > maxUnit) ? maxUnit : current);
+    current = (current + newDim[1] - 1) / newDim[1];
     
-    normalize_dimensions(desc);
+    newDim[2] = (unsigned int)((current > maxSlice) ? maxSlice : current);
+    current = (current + newDim[2] - 1) / newDim[2];
     
-    return changed;
-}
-
-static int validate_feasible(const microarch_tensor_descriptor_t* desc, 
-                            const microarch_constraints_t* constraints) {
-    unsigned long long currentBytes = (unsigned long long)desc->byteNum * desc->unitNum * 
-                                      desc->sliceNum * desc->planeNum * desc->cubeNum;
+    newDim[3] = (unsigned int)((current > maxPlane) ? maxPlane : current);
+    current = (current + newDim[3] - 1) / newDim[3];
     
-    if (constraints->maxTotalBytes > 0 && currentBytes > constraints->maxTotalBytes) {
-        return E_OVER_CONSTRAINED;
-    }
+    newDim[4] = (unsigned int)((current > maxCube) ? maxCube : current);
     
-    if (constraints->maxUnitNum > 0 && desc->unitNum > (int)constraints->maxUnitNum) {
-        unsigned long long minBytesNeeded = (unsigned long long)constraints->maxUnitNum * 
-                                            desc->sliceNum * desc->planeNum * desc->cubeNum;
-        if ((unsigned long long)desc->byteNum * 64 < minBytesNeeded) {
-            return E_OVER_CONSTRAINED;
+    while ((unsigned long long)newDim[0] * newDim[1] * newDim[2] * newDim[3] * newDim[4] < total) {
+        int advanced = 0;
+        for (int i = 1; i <= 4; i++) {
+            unsigned int limit = (i == 1) ? maxUnit : (i == 2) ? maxSlice : (i == 3) ? maxPlane : maxCube;
+            if (newDim[i] < limit) {
+                newDim[i]++;
+                advanced = 1;
+                break;
+            }
         }
+        if (!advanced) break;
     }
     
-    return E_SUCCESS;
+    for (int i = 0; i < 5; i++) {
+        if (newDim[i] == 0) newDim[i] = 1;
+    }
+    
+    dim[0] = newDim[0];
+    dim[1] = newDim[1];
+    dim[2] = newDim[2];
+    dim[3] = newDim[3];
+    dim[4] = newDim[4];
 }
 
-static int calculate_has_gap(const microarch_tensor_descriptor_t* desc) {
-    if (desc->byteNum == 0) return 0;
-    if (desc->byteNum == 1) return 1;
-    
-    int actualStride = 1 << (int)ceil(log2((double)desc->byteNum));
-    if (actualStride > desc->byteNum) {
-        return 1;
-    }
-    return 0;
-}
-
-static int apply_physical_limits(int* dim, const microarch_physical_limits_t* limits) {
-    int error = 0;
-    
-    if (limits && limits->maxPhysicalByteNum > 0 && dim[0] > (int)limits->maxPhysicalByteNum) {
-        error = 1;
-    }
-    if (limits && limits->maxPhysicalUnitNum > 0 && dim[1] > (int)limits->maxPhysicalUnitNum) {
-        error = 1;
-    }
-    if (limits && limits->maxPhysicalSliceNum > 0 && dim[2] > (int)limits->maxPhysicalSliceNum) {
-        error = 1;
-    }
-    if (limits && limits->maxPhysicalPlaneNum > 0 && dim[3] > (int)limits->maxPhysicalPlaneNum) {
-        error = 1;
-    }
-    if (limits && limits->maxPhysicalCubeNum > 0 && dim[4] > (int)limits->maxPhysicalCubeNum) {
-        error = 1;
-    }
-    
-    return error ? E_PHYSICAL_CONSTRAINT : E_SUCCESS;
-}
-
-static void expand_dimensions(int* dim, unsigned long long totalBytes) {
-    if (dim[0] <= MAX_BYTE_NUM) return;
-    
-    int extraBytes = dim[0] - MAX_BYTE_NUM;
-    int extraUnits = (extraBytes + MAX_BYTE_NUM - 1) / MAX_BYTE_NUM;
-    
-    dim[1] = dim[1] * (1 + extraUnits);
-    dim[0] = MAX_BYTE_NUM;
-    
-    totalBytes = (unsigned long long)dim[0] * dim[1] * dim[2] * dim[3] * dim[4];
-}
-
-int microarch_constraints_convert(const microarch_tensor_descriptor_t* archDesc,
+int microarch_constraints_convert(const unsigned int* archDim,
+                                  const unsigned int* archStride,
+                                  unsigned int baseAddr,
                                   const microarch_constraints_t* constraints,
                                   const microarch_physical_limits_t* physicalLimits,
                                   microarch_conversion_result_t* result) {
-    if (!archDesc || !result) {
+    if (!archDim || !result) {
         if (result) result->errorCode = E_INVALID_DIMENSION;
         return E_INVALID_DIMENSION;
     }
     
-    unsigned long long totalBytes = (unsigned long long)archDesc->byteNum * archDesc->unitNum * 
-                                     archDesc->sliceNum * archDesc->planeNum * archDesc->cubeNum;
+    unsigned int dim[5];
+    for (int i = 0; i < 5; i++) {
+        dim[i] = archDim[i];
+        if (dim[i] == 0) dim[i] = 1;
+    }
     
-    result->desc.baseAddr = archDesc->baseAddr;
-    result->desc.byteNum = archDesc->byteNum;
-    result->desc.unitNum = archDesc->unitNum;
-    result->desc.sliceNum = archDesc->sliceNum;
-    result->desc.planeNum = archDesc->planeNum;
-    result->desc.cubeNum = archDesc->cubeNum;
+    expand_for_physical_limits(dim, physicalLimits, constraints);
     
-    expand_dimensions((int*)&result->desc, totalBytes);
-    normalize_dimensions(&result->desc);
-    
-    if (apply_physical_limits((int*)&result->desc, physicalLimits) != E_SUCCESS) {
-        result->errorCode = E_PHYSICAL_CONSTRAINT;
-        return E_PHYSICAL_CONSTRAINT;
+    for (int i = 0; i < 5; i++) {
+        if (dim[i] == 0) dim[i] = 1;
     }
     
     if (constraints) {
-        unsigned long long newTotalBytes = (unsigned long long)result->desc.byteNum * 
-                                            result->desc.unitNum * result->desc.sliceNum * 
-                                            result->desc.planeNum * result->desc.cubeNum;
-        
-        int feasResult = validate_feasible(&result->desc, constraints);
-        if (feasResult != E_SUCCESS) {
-            result->errorCode = feasResult;
-            return feasResult;
+        unsigned long long finalBytes = (unsigned long long)dim[0] * dim[1] * dim[2] * dim[3] * dim[4];
+        if (constraints->maxTotalBytes > 0 && finalBytes > constraints->maxTotalBytes) {
+            result->errorCode = E_OVER_CONSTRAINED;
+            return E_OVER_CONSTRAINED;
         }
-        
-        adjust_for_constraints(&result->desc, constraints, newTotalBytes);
     }
+    
+    result->desc.baseAddr = (int)baseAddr;
+    result->desc.byteNum = (int)dim[0];
+    result->desc.unitNum = (int)dim[1];
+    result->desc.sliceNum = (int)dim[2];
+    result->desc.planeNum = (int)dim[3];
+    result->desc.cubeNum = (int)dim[4];
+    
+    compute_effective_limits_internal(physicalLimits, constraints,
+                                     &result->effectiveMaxByte,
+                                     &result->effectiveMaxUnit,
+                                     &result->effectiveMaxSlice,
+                                     &result->effectiveMaxPlane,
+                                     &result->effectiveMaxCube);
     
     result->desc.unitSkip = 1 << (int)ceil(log2((double)result->desc.byteNum));
     result->desc.sliceSkip = result->desc.unitNum * result->desc.unitSkip;
     result->desc.planeSkip = result->desc.sliceNum * result->desc.sliceSkip;
     result->desc.cubeSkip = result->desc.planeNum * result->desc.planeSkip;
     
-    result->hasGap = calculate_has_gap(&result->desc);
+    int actualStride = 1 << (int)ceil(log2((double)dim[0]));
+    if (dim[0] == 0) {
+        result->hasGap = 0;
+    } else if (dim[0] == 1) {
+        result->hasGap = 1;
+    } else {
+        result->hasGap = (actualStride > (int)dim[0]) ? 1 : 0;
+    }
     result->errorCode = E_SUCCESS;
     
     return E_SUCCESS;

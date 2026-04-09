@@ -27,8 +27,6 @@ typedef struct {
 arch_tensor_t* arch_tensor_create_random(void);
 void arch_tensor_destroy(arch_tensor_t* tensor);
 void arch_tensor_gen_sub_tensor(arch_tensor_t* tensor);
-void arch_tensor_convert_to_microarch(arch_tensor_t* tensor);
-void arch_tensor_convert_sub_to_microarch(arch_tensor_t* tensor);
 void arch_tensor_print(const char* name, const arch_tensor_descriptor_t* desc);
 
 int arch_tensor_convert_with_constraints(arch_tensor_t* tensor, 

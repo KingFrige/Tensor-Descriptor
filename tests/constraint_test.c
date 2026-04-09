@@ -65,6 +65,9 @@ void test_no_constraints() {
     memset(&result, 0, sizeof(result));
     
     int ret = arch_tensor_convert_with_constraints(tensor, NULL, NULL, &result);
+    microarch_tensor_traversal(&result.desc);
+    int tensorAddrPointNum = microarch_tensor_get_traversal_count(&result.desc);
+    printf("tensorAddrPointNum: %d\n", tensorAddrPointNum);
     
     print_conversion_result(tensor, &result);
     
@@ -331,7 +334,7 @@ void test_physical_limits() {
     
     ASSERT(ret == E_SUCCESS, "Auto-expansion should succeed");
     ASSERT(result.desc.byteNum == 64, "byteNum stays at max");
-    ASSERT(result.desc.unitNum <= limits.maxPhysicalUnitNum, "unitNum within limit");
+    ASSERT((unsigned int)result.desc.unitNum <= limits.maxPhysicalUnitNum, "unitNum within limit");
     
     unsigned long long arch_bytes = 64ULL * 10000ULL;
     unsigned long long micro_bytes = (unsigned long long)result.desc.byteNum * 
