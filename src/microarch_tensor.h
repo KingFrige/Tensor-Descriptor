@@ -6,6 +6,10 @@
 #define NDIM 5
 
 #define MAX_BYTE_NUM 64
+#define DEFAULT_MAX_UNIT   1024
+#define DEFAULT_MAX_SLICE 1024
+#define DEFAULT_MAX_PLANE  1024
+#define DEFAULT_MAX_CUBE   1024
 
 #define E_SUCCESS              0
 #define E_BYTE_NUM_EXCEEDED  -1

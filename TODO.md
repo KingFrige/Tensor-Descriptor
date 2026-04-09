@@ -1,22 +1,20 @@
 # TODO
 
-## C Rewrite (DONE - 2026-04-09)
+## refactor
 
-- [x] 将 C++ 代码重写为纯 C 实现
-- [x] 移除 nlohmann/json 依赖
-- [x] 使用硬编码配置替代 JSON 配置文件
-
-## Add Tensor Constraints (DONE - 2026-04-09)
-
-- [x] 添加 `microarch_constraints_t` 结构体支持用户传入约束
-- [x] byteNum 硬编码最大值为 64
-- [x] 实现约束检查和自动调整逻辑
-- [x] 实现间隙检测标志 `hasGap`
-- [x] 约束冲突时返回错误码
-- [x] 子张量转换复用约束系统
-- [x] 添加 `tests/constraint_test.c` 充分测试
+1. 提取物理约束, 通过宏配置
+    - maxUnit = 1024
+    - maxSlice = 1024
+    - maxPlane = 1024
+    - maxCube = 1024
+1. 分析代码，提取重复代码形成函数
 
 ## 测试
 
-1. build/ 目录构建
-2. 执行生成的文件测试
+1. ./build.sh -a
+
+## 注意
+
+1. 小步修改频繁回归测试
+2. 结束需要 review，禁止擅自 git commit
+3. 禁止修改代码格式，仅修改项目需要的

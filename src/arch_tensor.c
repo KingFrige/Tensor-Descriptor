@@ -13,6 +13,8 @@ static unsigned int max_val(unsigned int x, unsigned int y) {
     return (x > y) ? x : y;
 }
 
+static void compute_arch_strides(const unsigned int* dim, unsigned int* stride);
+
 arch_tensor_t* arch_tensor_create_random(void) {
     arch_tensor_t* tensor = (arch_tensor_t*)malloc(sizeof(arch_tensor_t));
     if (!tensor) return NULL;
@@ -24,11 +26,7 @@ arch_tensor_t* arch_tensor_create_random(void) {
     tensor->tensorDesc.dimension[3] = gen_random_data(20);
     tensor->tensorDesc.dimension[4] = gen_random_data(6);
 
-    tensor->tensorDesc.stride[0] = 1 << (int)ceil(log2((double)tensor->tensorDesc.dimension[0]));
-    tensor->tensorDesc.stride[1] = tensor->tensorDesc.dimension[1] * tensor->tensorDesc.stride[0];
-    tensor->tensorDesc.stride[2] = tensor->tensorDesc.dimension[2] * tensor->tensorDesc.stride[1];
-    tensor->tensorDesc.stride[3] = tensor->tensorDesc.dimension[3] * tensor->tensorDesc.stride[2];
-    tensor->tensorDesc.stride[4] = tensor->tensorDesc.dimension[4] * tensor->tensorDesc.stride[3];
+    compute_arch_strides(tensor->tensorDesc.dimension, tensor->tensorDesc.stride);
 
     tensor->fatherMicroarchTensor = NULL;
     tensor->subMicroarchTensor = NULL;
@@ -72,29 +70,17 @@ void arch_tensor_gen_sub_tensor(arch_tensor_t* tensor) {
 void arch_tensor_convert_to_microarch(arch_tensor_t* tensor) {
     if (!tensor) return;
 
-    int base_addr = (int)tensor->tensorDesc.baseAddr;
-    int byte_num  = (int)tensor->tensorDesc.dimension[0];
-    int unit_num  = (int)tensor->tensorDesc.dimension[1];
-    int slice_num = (int)tensor->tensorDesc.dimension[2];
-    int plane_num = (int)tensor->tensorDesc.dimension[3];
-    int cube_num  = (int)tensor->tensorDesc.dimension[4];
-
-    int unit_skip  = (int)tensor->tensorDesc.stride[0];
-    int slice_skip = (int)tensor->tensorDesc.stride[1];
-    int plane_skip = (int)tensor->tensorDesc.stride[2];
-    int cube_skip  = (int)tensor->tensorDesc.stride[3];
-
     microarch_tensor_descriptor_t desc;
-    desc.baseAddr  = base_addr;
-    desc.byteNum   = byte_num;
-    desc.unitNum   = unit_num;
-    desc.sliceNum  = slice_num;
-    desc.planeNum  = plane_num;
-    desc.cubeNum   = cube_num;
-    desc.unitSkip  = unit_skip;
-    desc.sliceSkip = slice_skip;
-    desc.planeSkip = plane_skip;
-    desc.cubeSkip  = cube_skip;
+    desc.baseAddr  = (int)tensor->tensorDesc.baseAddr;
+    desc.byteNum   = (int)tensor->tensorDesc.dimension[0];
+    desc.unitNum   = (int)tensor->tensorDesc.dimension[1];
+    desc.sliceNum  = (int)tensor->tensorDesc.dimension[2];
+    desc.planeNum  = (int)tensor->tensorDesc.dimension[3];
+    desc.cubeNum   = (int)tensor->tensorDesc.dimension[4];
+    desc.unitSkip  = (int)tensor->tensorDesc.stride[0];
+    desc.sliceSkip = (int)tensor->tensorDesc.stride[1];
+    desc.planeSkip = (int)tensor->tensorDesc.stride[2];
+    desc.cubeSkip  = (int)tensor->tensorDesc.stride[3];
 
     tensor->fatherMicroarchTensor = microarch_tensor_create_from_desc(&desc);
 }
@@ -102,34 +88,21 @@ void arch_tensor_convert_to_microarch(arch_tensor_t* tensor) {
 void arch_tensor_convert_sub_to_microarch(arch_tensor_t* tensor) {
     if (!tensor) return;
 
-    int base_addr = (int)(tensor->subTensorDesc.coords[0] * tensor->tensorDesc.stride[0] +
+    microarch_tensor_descriptor_t desc;
+    desc.baseAddr  = (int)(tensor->subTensorDesc.coords[0] * tensor->tensorDesc.stride[0] +
                          tensor->subTensorDesc.coords[1] * tensor->tensorDesc.stride[1] +
                          tensor->subTensorDesc.coords[2] * tensor->tensorDesc.stride[2] +
                          tensor->subTensorDesc.coords[3] * tensor->tensorDesc.stride[3] +
                          tensor->subTensorDesc.coords[4] * tensor->tensorDesc.stride[4]);
-
-    int byte_num  = (int)tensor->subTensorDesc.range[0];
-    int unit_num  = (int)tensor->subTensorDesc.range[1];
-    int slice_num = (int)tensor->subTensorDesc.range[2];
-    int plane_num = (int)tensor->subTensorDesc.range[3];
-    int cube_num  = (int)tensor->subTensorDesc.range[4];
-
-    int unit_skip  = (int)(tensor->tensorDesc.stride[0] * tensor->subTensorDesc.traversalStride[0]);
-    int slice_skip = (int)(tensor->tensorDesc.stride[1] * tensor->subTensorDesc.traversalStride[1]);
-    int plane_skip = (int)(tensor->tensorDesc.stride[2] * tensor->subTensorDesc.traversalStride[2]);
-    int cube_skip  = (int)(tensor->tensorDesc.stride[3] * tensor->subTensorDesc.traversalStride[3]);
-
-    microarch_tensor_descriptor_t desc;
-    desc.baseAddr  = base_addr;
-    desc.byteNum   = byte_num;
-    desc.unitNum   = unit_num;
-    desc.sliceNum  = slice_num;
-    desc.planeNum  = plane_num;
-    desc.cubeNum   = cube_num;
-    desc.unitSkip  = unit_skip;
-    desc.sliceSkip = slice_skip;
-    desc.planeSkip = plane_skip;
-    desc.cubeSkip  = cube_skip;
+    desc.byteNum   = (int)tensor->subTensorDesc.range[0];
+    desc.unitNum   = (int)tensor->subTensorDesc.range[1];
+    desc.sliceNum  = (int)tensor->subTensorDesc.range[2];
+    desc.planeNum  = (int)tensor->subTensorDesc.range[3];
+    desc.cubeNum   = (int)tensor->subTensorDesc.range[4];
+    desc.unitSkip  = (int)(tensor->tensorDesc.stride[0] * tensor->subTensorDesc.traversalStride[0]);
+    desc.sliceSkip = (int)(tensor->tensorDesc.stride[1] * tensor->subTensorDesc.traversalStride[1]);
+    desc.planeSkip = (int)(tensor->tensorDesc.stride[2] * tensor->subTensorDesc.traversalStride[2]);
+    desc.cubeSkip  = (int)(tensor->tensorDesc.stride[3] * tensor->subTensorDesc.traversalStride[3]);
 
     tensor->subMicroarchTensor = microarch_tensor_create_from_desc(&desc);
 }
@@ -147,6 +120,13 @@ void arch_tensor_print(const char* name, const arch_tensor_descriptor_t* desc) {
 static void normalize_arch_dimensions(unsigned int* dim) {
     for (int i = 0; i < NDIM; i++) {
         if (dim[i] == 0) dim[i] = 1;
+    }
+}
+
+static void compute_arch_strides(const unsigned int* dim, unsigned int* stride) {
+    stride[0] = 1 << (int)ceil(log2((double)dim[0]));
+    for (int i = 1; i < NDIM; i++) {
+        stride[i] = dim[i] * stride[i-1];
     }
 }
 
@@ -239,6 +219,38 @@ static int check_physical_limits(const unsigned int* dim,
     return E_SUCCESS;
 }
 
+static void merge_limits(const microarch_physical_limits_t* limits,
+                        const microarch_constraints_t* constraints,
+                        unsigned int* maxByte,
+                        unsigned int* maxUnit,
+                        unsigned int* maxSlice,
+                        unsigned int* maxPlane,
+                        unsigned int* maxCube) {
+    *maxByte = MAX_BYTE_NUM;
+    *maxUnit = DEFAULT_MAX_UNIT;
+    *maxSlice = DEFAULT_MAX_SLICE;
+    *maxPlane = DEFAULT_MAX_PLANE;
+    *maxCube = DEFAULT_MAX_CUBE;
+    
+    if (limits) {
+        *maxByte = limits->maxPhysicalByteNum > 0 ? limits->maxPhysicalByteNum : *maxByte;
+        *maxUnit = limits->maxPhysicalUnitNum > 0 ? limits->maxPhysicalUnitNum : *maxUnit;
+        *maxSlice = limits->maxPhysicalSliceNum > 0 ? limits->maxPhysicalSliceNum : *maxSlice;
+        *maxPlane = limits->maxPhysicalPlaneNum > 0 ? limits->maxPhysicalPlaneNum : *maxPlane;
+        *maxCube = limits->maxPhysicalCubeNum > 0 ? limits->maxPhysicalCubeNum : *maxCube;
+    }
+    
+    if (constraints) {
+        if (constraints->maxUnitNum > 0 && constraints->maxUnitNum < *maxUnit) *maxUnit = constraints->maxUnitNum;
+        if (constraints->maxSliceNum > 0 && constraints->maxSliceNum < *maxSlice) *maxSlice = constraints->maxSliceNum;
+        if (constraints->maxPlaneNum > 0 && constraints->maxPlaneNum < *maxPlane) *maxPlane = constraints->maxPlaneNum;
+        if (constraints->maxCubeNum > 0 && constraints->maxCubeNum < *maxCube) *maxCube = constraints->maxCubeNum;
+    }
+    
+    if (*maxPlane == 0) *maxPlane = DEFAULT_MAX_PLANE;
+    if (*maxCube == 0) *maxCube = DEFAULT_MAX_CUBE;
+}
+
 static void compute_effective_limits(const microarch_physical_limits_t* limits,
                                      const microarch_constraints_t* constraints,
                                      unsigned int* effMaxByte,
@@ -246,64 +258,14 @@ static void compute_effective_limits(const microarch_physical_limits_t* limits,
                                      unsigned int* effMaxSlice,
                                      unsigned int* effMaxPlane,
                                      unsigned int* effMaxCube) {
-    unsigned int maxByte = MAX_BYTE_NUM;
-    unsigned int maxUnit = 1024;
-    unsigned int maxSlice = 1024;
-    unsigned int maxPlane = 1024;
-    unsigned int maxCube = 1024;
-    
-    if (limits) {
-        maxByte = limits->maxPhysicalByteNum > 0 ? limits->maxPhysicalByteNum : maxByte;
-        maxUnit = limits->maxPhysicalUnitNum > 0 ? limits->maxPhysicalUnitNum : maxUnit;
-        maxSlice = limits->maxPhysicalSliceNum > 0 ? limits->maxPhysicalSliceNum : maxSlice;
-        maxPlane = limits->maxPhysicalPlaneNum > 0 ? limits->maxPhysicalPlaneNum : maxPlane;
-        maxCube = limits->maxPhysicalCubeNum > 0 ? limits->maxPhysicalCubeNum : maxCube;
-    }
-    
-    if (constraints) {
-        if (constraints->maxUnitNum > 0 && constraints->maxUnitNum < maxUnit) maxUnit = constraints->maxUnitNum;
-        if (constraints->maxSliceNum > 0 && constraints->maxSliceNum < maxSlice) maxSlice = constraints->maxSliceNum;
-        if (constraints->maxPlaneNum > 0 && constraints->maxPlaneNum < maxPlane) maxPlane = constraints->maxPlaneNum;
-        if (constraints->maxCubeNum > 0 && constraints->maxCubeNum < maxCube) maxCube = constraints->maxCubeNum;
-    }
-    
-    if (maxPlane == 0) maxPlane = 1024;
-    if (maxCube == 0) maxCube = 1024;
-    
-    *effMaxByte = maxByte;
-    *effMaxUnit = maxUnit;
-    *effMaxSlice = maxSlice;
-    *effMaxPlane = maxPlane;
-    *effMaxCube = maxCube;
+    merge_limits(limits, constraints, effMaxByte, effMaxUnit, effMaxSlice, effMaxPlane, effMaxCube);
 }
 
 static void expand_arch_dimensions(unsigned int* dim, 
                                     const microarch_physical_limits_t* limits,
-                                    const microarch_constraints_t* constraints,
-                                    unsigned long long totalBytes) {
-    unsigned int maxByte = MAX_BYTE_NUM;
-    unsigned int maxUnit = 1024;
-    unsigned int maxSlice = 1024;
-    unsigned int maxPlane = 1024;
-    unsigned int maxCube = 1024;
-    
-    if (limits) {
-        maxByte = limits->maxPhysicalByteNum > 0 ? limits->maxPhysicalByteNum : maxByte;
-        maxUnit = limits->maxPhysicalUnitNum > 0 ? limits->maxPhysicalUnitNum : maxUnit;
-        maxSlice = limits->maxPhysicalSliceNum > 0 ? limits->maxPhysicalSliceNum : maxSlice;
-        maxPlane = limits->maxPhysicalPlaneNum > 0 ? limits->maxPhysicalPlaneNum : maxPlane;
-        maxCube = limits->maxPhysicalCubeNum > 0 ? limits->maxPhysicalCubeNum : maxCube;
-    }
-    
-    if (constraints) {
-        if (constraints->maxUnitNum > 0 && constraints->maxUnitNum < maxUnit) maxUnit = constraints->maxUnitNum;
-        if (constraints->maxSliceNum > 0 && constraints->maxSliceNum < maxSlice) maxSlice = constraints->maxSliceNum;
-        if (constraints->maxPlaneNum > 0 && constraints->maxPlaneNum < maxPlane) maxPlane = constraints->maxPlaneNum;
-        if (constraints->maxCubeNum > 0 && constraints->maxCubeNum < maxCube) maxCube = constraints->maxCubeNum;
-    }
-    
-    if (maxPlane == 0) maxPlane = 1024;
-    if (maxCube == 0) maxCube = 1024;
+                                    const microarch_constraints_t* constraints) {
+    unsigned int maxByte, maxUnit, maxSlice, maxPlane, maxCube;
+    merge_limits(limits, constraints, &maxByte, &maxUnit, &maxSlice, &maxPlane, &maxCube);
     
     unsigned int origByte = dim[0];
     if (origByte == 0) origByte = 1;
@@ -380,7 +342,7 @@ int arch_tensor_convert_with_constraints(arch_tensor_t* tensor,
         dim[i] = tensor->tensorDesc.dimension[i];
     }
     
-    expand_arch_dimensions(dim, physicalLimits, constraints, totalBytes);
+    expand_arch_dimensions(dim, physicalLimits, constraints);
     normalize_arch_dimensions(dim);
     
     int physResult = check_physical_limits(dim, physicalLimits);
@@ -450,7 +412,7 @@ int arch_tensor_convert_sub_with_constraints(arch_tensor_t* tensor,
         range[i] = tensor->subTensorDesc.range[i];
     }
     
-    expand_arch_dimensions(range, physicalLimits, NULL, totalBytes);
+    expand_arch_dimensions(range, physicalLimits, NULL);
     normalize_arch_dimensions(range);
     
     int physResult = check_physical_limits(range, physicalLimits);
