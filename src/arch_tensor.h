@@ -31,4 +31,13 @@ void arch_tensor_convert_to_microarch(arch_tensor_t* tensor);
 void arch_tensor_convert_sub_to_microarch(arch_tensor_t* tensor);
 void arch_tensor_print(const char* name, const arch_tensor_descriptor_t* desc);
 
+int arch_tensor_convert_with_constraints(arch_tensor_t* tensor, 
+                                          const microarch_constraints_t* constraints,
+                                          const microarch_physical_limits_t* physicalLimits,
+                                          microarch_conversion_result_t* result);
+int arch_tensor_convert_sub_with_constraints(arch_tensor_t* tensor,
+                                               const microarch_constraints_t* constraints,
+                                               const microarch_physical_limits_t* physicalLimits,
+                                               microarch_conversion_result_t* result);
+
 #endif

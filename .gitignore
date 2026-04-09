@@ -2,3 +2,4 @@ a.out
 *.elf
 *.swp
 build/
+.gdblog

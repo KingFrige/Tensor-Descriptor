@@ -23,3 +23,13 @@ add_executable(microarchTool tests/microarch_tool.c)
 target_link_libraries(microarchTool PRIVATE tensor_descriptor_lib)
 target_include_directories(microarchTool PRIVATE src)
 target_compile_options(microarchTool PRIVATE -Wall -Wextra -g -O0 -ggdb)
+
+add_executable(constraint_test tests/constraint_test.c)
+target_link_libraries(constraint_test PRIVATE tensor_descriptor_lib)
+target_include_directories(constraint_test PRIVATE src)
+target_compile_options(constraint_test PRIVATE -Wall -Wextra -g -O0 -ggdb)
+
+add_executable(batch_constraint_test tests/batch_constraint_test.c)
+target_link_libraries(batch_constraint_test PRIVATE tensor_descriptor_lib)
+target_include_directories(batch_constraint_test PRIVATE src)
+target_compile_options(batch_constraint_test PRIVATE -Wall -Wextra -g -O0 -ggdb)
