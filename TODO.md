@@ -1,9 +1,12 @@
 # TODO
 
-1. 理解 src/ 下代码含义
-1. 将代码用c重写，去除 <nlohmann/json.hpp> 依赖， 直接读取 json 注入测试
+## C Rewrite (DONE - 2026-04-09)
+
+- [x] 将 C++ 代码重写为纯 C 实现
+- [x] 移除 nlohmann/json 依赖
+- [x] 使用硬编码配置替代 JSON 配置文件
 
 ## 测试
 
 1. build/ 目录构建
-1. 执行生成的文件测试
+2. 执行生成的文件测试
