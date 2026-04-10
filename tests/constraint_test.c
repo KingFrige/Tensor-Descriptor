@@ -1,7 +1,8 @@
-#include "tensor_descriptor.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "tensor_descriptor.h"
+#include "utils.h"
 
 static int test_count = 0;
 static int pass_count = 0;
@@ -68,6 +69,7 @@ void test_no_constraints() {
     int ret = tensor_descriptor_convert(&desc, NULL, NULL, &result);
     
     print_conversion_result(&desc, &result);
+    microarch_tensor_traversal((const microarch_tensor_descriptor_t*)&result.desc);
     
     ASSERT(ret == E_SUCCESS, "Conversion succeeds with no constraints");
     ASSERT(result.errorCode == E_SUCCESS, "Error code is E_SUCCESS");

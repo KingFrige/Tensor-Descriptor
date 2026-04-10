@@ -2,14 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include <math.h>
 #include "tensor_descriptor.h"
+#include "utils.h"
 
 int pass_count = 0;
 int test_count = 0;
 
 static void compute_arch_stride(const unsigned int* dim, unsigned int* stride) {
-    stride[0] = 1 << (int)ceil(log2((double)dim[0]));
+    stride[0] = next_power_of_2(dim[0]);
     for (int i = 1; i < 5; i++) {
         stride[i] = stride[i-1] * dim[i];
     }
@@ -381,6 +381,80 @@ void test_combined_constraints_batch() {
     }
 }
 
+void test_balance_batch() {
+    printf("\n=== Batch Test: Balance mode ===\n");
+    
+    tensor_physical_limits_t limits = {0};
+    limits.maxPhysicalByteNum = 64;
+    limits.maxPhysicalUnitNum = 1024;
+    limits.maxPhysicalSliceNum = 1024;
+    limits.maxPhysicalPlaneNum = 1024;
+    limits.maxPhysicalCubeNum = 1024;
+    
+    struct {
+        const char* name;
+        unsigned int dim[5];
+        tensor_constraints_t constraints;
+        unsigned int expect_unit;
+        unsigned int expect_slice;
+        double expect_ratio;
+    } cases[] = {
+        {"balance: dim[64,2000] no balance", 
+         {64, 2000, 1, 1, 1}, 
+         {.maxUnitNum = 0, .enableBalance = 0},
+         1024, 2, 1.024},
+        {"balance: dim[64,2000] with balance", 
+         {64, 2000, 1, 1, 1}, 
+         {.maxUnitNum = 0, .enableBalance = 1},
+         1000, 2, 1.0},
+        {"balance: dim[64,3000] with balance", 
+         {64, 3000, 1, 1, 1}, 
+         {.maxUnitNum = 0, .enableBalance = 1},
+         1000, 3, 1.0},
+    };
+    
+    int num_cases = sizeof(cases) / sizeof(cases[0]);
+    
+    for (int i = 0; i < num_cases; i++) {
+        printf("\n--- Case: %s ---\n", cases[i].name);
+        
+        tensor_descriptor_t desc;
+        unsigned int stride[5];
+        compute_arch_stride(cases[i].dim, stride);
+        
+        desc.baseAddr = 5120;
+        for (int j = 0; j < 5; j++) {
+            desc.dimension[j] = cases[i].dim[j];
+            desc.stride[j] = stride[j];
+        }
+        
+        tensor_conversion_result_t result;
+        memset(&result, 0, sizeof(result));
+        
+        int ret = tensor_descriptor_convert(&desc, &cases[i].constraints, &limits, &result);
+        
+        printf("  [ %s ] balance=%s\n", cases[i].name, cases[i].constraints.enableBalance ? "ON" : "OFF");
+        print_conversion_result(cases[i].name, cases[i].dim, &result);
+        
+        unsigned long long arch_total = 1;
+        for (int j = 0; j < 5; j++) {
+            arch_total *= cases[i].dim[j];
+        }
+        unsigned long long micro_total = (unsigned long long)result.desc.byteNum * 
+                                         result.desc.unitNum * result.desc.sliceNum *
+                                         result.desc.planeNum * result.desc.cubeNum;
+        double ratio = (double)micro_total / arch_total;
+        printf("    ratio: %.3f (expected %.3f)\n", ratio, cases[i].expect_ratio);
+        
+        ASSERT(ret == E_SUCCESS, "Conversion succeeds");
+        
+        if (cases[i].expect_ratio > 0) {
+            int ratio_ok = (ratio <= cases[i].expect_ratio + 0.001 && ratio >= cases[i].expect_ratio - 0.001);
+            ASSERT(ratio_ok, "ratio expected");
+        }
+    }
+}
+
 int main(void) {
     printf("=== Batch Constraint Tests ===\n");
     
@@ -389,6 +463,7 @@ int main(void) {
     test_has_gap_batch();
     test_user_constraints_batch();
     test_combined_constraints_batch();
+    test_balance_batch();
     
     printf("\n=== Results: %d/%d passed ===\n", pass_count, test_count);
     

@@ -7,14 +7,13 @@ set(CMAKE_C_STANDARD_REQUIRED True)
 
 add_library(tensor_descriptor_lib src/tensor_descriptor.c)
 target_include_directories(tensor_descriptor_lib PUBLIC src)
-target_link_libraries(tensor_descriptor_lib PUBLIC m)
 
-add_executable(constraint_test tests/constraint_test.c)
+add_executable(constraint_test tests/constraint_test.c tests/utils.c)
 target_link_libraries(constraint_test PRIVATE tensor_descriptor_lib)
 target_include_directories(constraint_test PRIVATE src)
 target_compile_options(constraint_test PRIVATE -Wall -Wextra -g -O0 -ggdb)
 
-add_executable(batch_constraint_test tests/batch_constraint_test.c)
+add_executable(batch_constraint_test tests/batch_constraint_test.c tests/utils.c)
 target_link_libraries(batch_constraint_test PRIVATE tensor_descriptor_lib)
 target_include_directories(batch_constraint_test PRIVATE src)
 target_compile_options(batch_constraint_test PRIVATE -Wall -Wextra -g -O0 -ggdb)

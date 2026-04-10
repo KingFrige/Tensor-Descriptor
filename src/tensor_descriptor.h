@@ -57,6 +57,7 @@ typedef struct {
     unsigned int maxPlaneNum;
     unsigned int maxCubeNum;
     unsigned int maxTotalBytes;
+    unsigned int enableBalance;
 } microarch_constraints_t;
 
 typedef struct {
@@ -134,6 +135,7 @@ typedef struct {
     unsigned int maxPlaneNum;
     unsigned int maxCubeNum;
     unsigned int maxTotalBytes;
+    unsigned int enableBalance;
 } tensor_constraints_t;
 
 typedef struct {
@@ -147,31 +149,12 @@ typedef struct {
 /* ============================================================================
  * Internal Functions (not for direct external use)
  * ============================================================================ */
-arch_tensor_t* arch_tensor_create_random(void);
-void arch_tensor_destroy(arch_tensor_t* tensor);
-void arch_tensor_gen_sub_tensor(arch_tensor_t* tensor);
-int arch_tensor_convert_with_constraints(arch_tensor_t* tensor, 
-                                          const microarch_constraints_t* constraints,
-                                          const microarch_physical_limits_t* physicalLimits,
-                                          microarch_conversion_result_t* result);
-int arch_tensor_convert_sub_with_constraints(arch_tensor_t* tensor,
-                                               const microarch_constraints_t* constraints,
-                                               const microarch_physical_limits_t* physicalLimits,
-                                               microarch_conversion_result_t* result);
-
-microarch_tensor_t* microarch_tensor_create_random(void);
-microarch_tensor_t* microarch_tensor_create_from_desc(const microarch_tensor_descriptor_t* desc);
-void microarch_tensor_destroy(microarch_tensor_t* tensor);
-void microarch_tensor_gen_sub_tensor(microarch_tensor_t* tensor);
-int microarch_tensor_get_traversal_count(const microarch_tensor_descriptor_t* desc);
-int* microarch_tensor_traversal(const microarch_tensor_descriptor_t* myTensorDesc);
-void microarch_tensor_print(const char* name, const microarch_tensor_descriptor_t* desc);
 int microarch_constraints_convert(const unsigned int* archDim,
-                                  const unsigned int* archStride,
-                                  unsigned int baseAddr,
-                                  const microarch_constraints_t* constraints,
-                                  const microarch_physical_limits_t* physicalLimits,
-                                  microarch_conversion_result_t* result);
+                                   const unsigned int* archStride,
+                                   unsigned int baseAddr,
+                                   const microarch_constraints_t* constraints,
+                                   const microarch_physical_limits_t* physicalLimits,
+                                   microarch_conversion_result_t* result);
 
 /* ============================================================================
  * Public API

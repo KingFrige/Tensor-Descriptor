@@ -26,11 +26,19 @@ make
 └─────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                   内部实现                                   │
-│  ┌─────────────────────┐  ┌───────────────────────────────┐ │
-│  │  arch_tensor 模块   │  │   microarch_tensor 模块      │ │
-│  │  (需求侧抽象)        │  │    (物理侧实现)              │ │
-│  └─────────────────────┘  └───────────────────────────────┘ │
+│                   核心库 (src/)                          │
+│    tensor_descriptor.c / tensor_descriptor.h              │
+│    - tensor_descriptor_convert()                         │
+│    - tensor_descriptor_convert_sub()                     │
+│    - microarch_constraints_convert()                  │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                  测试工具 (tests/)                        │
+│              utils.c / utils.h                           │
+│    - arch_tensor_create_random()                        │
+│    - microarch_tensor_create_random()                  │
+│    - microarch_tensor_traversal()                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -48,6 +56,7 @@ make
 | `maxPlaneNum` | 最大平面数 |
 | `maxCubeNum` | 最大立方体数 |
 | `maxTotalBytes` | 最大总字节数 |
+| `enableBalance` | 启用均衡模式，使 micro/arch 维度乘积比接近 1 |
 
 ### 2. 物理限制 (Physical Limits)
 
@@ -114,11 +123,13 @@ typedef struct {
 
 // 约束条件
 typedef struct {
+    unsigned int maxByteNum;
     unsigned int maxUnitNum;
     unsigned int maxSliceNum;
     unsigned int maxPlaneNum;
     unsigned int maxCubeNum;
     unsigned int maxTotalBytes;
+    unsigned int enableBalance;
 } tensor_constraints_t;
 
 // 物理限制
@@ -180,7 +191,8 @@ tensor_descriptor_t desc = {
 // 2. 设置约束 (可选)
 tensor_constraints_t constraints = {
     .maxUnitNum = 50,
-    .maxTotalBytes = 0
+    .maxTotalBytes = 0,
+    .enableBalance = 1  // 启用均衡模式
 };
 
 // 3. 设置物理限制 (可选)
@@ -221,7 +233,19 @@ if (ret == E_SUCCESS) {
 ### Skip 计算
 
 ```c
-unitSkip  = 1 << ceil(log2(byteNum));
+// 整型实现 (无需 math.h)
+static unsigned int next_power_of_2(unsigned int x) {
+    if (x == 0) return 1;
+    x--;
+    x |= x >> 1;
+    x |= x >> 2;
+    x |= x >> 4;
+    x |= x >> 8;
+    x |= x >> 16;
+    return x + 1;
+}
+
+unitSkip  = next_power_of_2(byteNum);
 sliceSkip = unitNum * unitSkip;
 planeSkip = sliceNum * sliceSkip;
 cubeSkip  = planeNum * planeSkip;
