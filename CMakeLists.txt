@@ -5,7 +5,7 @@ project(tensor-descriptor)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED True)
 
-add_library(tensor_descriptor_lib src/microarch_tensor.c src/arch_tensor.c)
+add_library(tensor_descriptor_lib src/tensor_descriptor.c)
 target_include_directories(tensor_descriptor_lib PUBLIC src)
 target_link_libraries(tensor_descriptor_lib PUBLIC m)
 

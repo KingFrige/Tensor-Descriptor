@@ -1,13 +1,9 @@
 # TODO
 
-## refactor
+## docs
 
-1. 提取物理约束, 通过宏配置
-    - maxUnit = 1024
-    - maxSlice = 1024
-    - maxPlane = 1024
-    - maxCube = 1024
-1. 分析代码，提取重复代码形成函数
+1. 文档添加接口说明
+
 
 ## 测试
 

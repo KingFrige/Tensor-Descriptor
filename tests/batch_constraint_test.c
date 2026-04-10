@@ -3,8 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include <math.h>
-#include "arch_tensor.h"
-#include "microarch_tensor.h"
+#include "tensor_descriptor.h"
 
 int pass_count = 0;
 int test_count = 0;
@@ -18,7 +17,7 @@ static void compute_arch_stride(const unsigned int* dim, unsigned int* stride) {
 
 static void print_conversion_result(const char* name, 
                                     const unsigned int* archDim,
-                                    const microarch_conversion_result_t* result) {
+                                    const tensor_conversion_result_t* result) {
     unsigned int stride[5];
     compute_arch_stride(archDim, stride);
     
@@ -71,7 +70,7 @@ static void print_conversion_result(const char* name,
 void test_physical_limits_batch() {
     printf("\n=== Batch Test: Physical limits (byteNum=64, others=1024) ===\n");
     
-    microarch_physical_limits_t limits;
+    tensor_physical_limits_t limits;
     limits.maxPhysicalByteNum = 64;
     limits.maxPhysicalUnitNum = 1024;
     limits.maxPhysicalSliceNum = 1024;
@@ -104,15 +103,20 @@ void test_physical_limits_batch() {
     for (int i = 0; i < num_cases; i++) {
         printf("\n--- Case: %s ---\n", cases[i].name);
         
-        arch_tensor_t* tensor = arch_tensor_create_random();
+        tensor_descriptor_t desc;
+        unsigned int stride[5];
+        compute_arch_stride(cases[i].dim, stride);
+        
+        desc.baseAddr = 5120;
         for (int j = 0; j < 5; j++) {
-            tensor->tensorDesc.dimension[j] = cases[i].dim[j];
+            desc.dimension[j] = cases[i].dim[j];
+            desc.stride[j] = stride[j];
         }
         
-        microarch_conversion_result_t result;
+        tensor_conversion_result_t result;
         memset(&result, 0, sizeof(result));
         
-        int ret = arch_tensor_convert_with_constraints(tensor, NULL, &limits, &result);
+        int ret = tensor_descriptor_convert(&desc, NULL, &limits, &result);
         
         print_conversion_result(cases[i].name, cases[i].dim, &result);
         
@@ -127,15 +131,13 @@ void test_physical_limits_batch() {
         } else {
             ASSERT(ret == E_PHYSICAL_CONSTRAINT, "Should return E_PHYSICAL_CONSTRAINT");
         }
-        
-        arch_tensor_destroy(tensor);
     }
 }
 
 void test_dimension_expansion_batch() {
     printf("\n=== Batch Test: Dimension expansion (dim[0] > 64 with physical limits) ===\n");
     
-    microarch_physical_limits_t limits;
+    tensor_physical_limits_t limits;
     limits.maxPhysicalByteNum = 64;
     limits.maxPhysicalUnitNum = 1024;
     limits.maxPhysicalSliceNum = 1024;
@@ -165,9 +167,14 @@ void test_dimension_expansion_batch() {
     for (int i = 0; i < num_cases; i++) {
         printf("\n--- Case: %s ---\n", cases[i].name);
         
-        arch_tensor_t* tensor = arch_tensor_create_random();
+        tensor_descriptor_t desc;
+        unsigned int stride[5];
+        compute_arch_stride(cases[i].dim, stride);
+        
+        desc.baseAddr = 5120;
         for (int j = 0; j < 5; j++) {
-            tensor->tensorDesc.dimension[j] = cases[i].dim[j];
+            desc.dimension[j] = cases[i].dim[j];
+            desc.stride[j] = stride[j];
         }
         
         unsigned long long arch_total = 1;
@@ -175,10 +182,10 @@ void test_dimension_expansion_batch() {
             arch_total *= cases[i].dim[j];
         }
         
-        microarch_conversion_result_t result;
+        tensor_conversion_result_t result;
         memset(&result, 0, sizeof(result));
         
-        int ret = arch_tensor_convert_with_constraints(tensor, NULL, &limits, &result);
+        int ret = tensor_descriptor_convert(&desc, NULL, &limits, &result);
         
         print_conversion_result(cases[i].name, cases[i].dim, &result);
         
@@ -193,8 +200,6 @@ void test_dimension_expansion_batch() {
                                          result.desc.unitNum * result.desc.sliceNum *
                                          result.desc.planeNum * result.desc.cubeNum;
         ASSERT(arch_total == micro_total, "Data volume preserved");
-        
-        arch_tensor_destroy(tensor);
     }
 }
 
@@ -226,14 +231,24 @@ void test_has_gap_batch() {
     for (int i = 0; i < num_cases; i++) {
         printf("\n--- Case: %s ---\n", cases[i].name);
         
-        arch_tensor_t* tensor = arch_tensor_create_random();
-        tensor->tensorDesc.dimension[0] = cases[i].dim0;
-        tensor->tensorDesc.dimension[1] = 1;
+        tensor_descriptor_t desc;
+        desc.baseAddr = 5120;
+        desc.dimension[0] = cases[i].dim0;
+        desc.dimension[1] = 1;
+        desc.dimension[2] = 1;
+        desc.dimension[3] = 1;
+        desc.dimension[4] = 1;
         
-        microarch_conversion_result_t result;
+        unsigned int stride[5];
+        compute_arch_stride(desc.dimension, stride);
+        for (int j = 0; j < 5; j++) {
+            desc.stride[j] = stride[j];
+        }
+        
+        tensor_conversion_result_t result;
         memset(&result, 0, sizeof(result));
         
-        int ret = arch_tensor_convert_with_constraints(tensor, NULL, NULL, &result);
+        int ret = tensor_descriptor_convert(&desc, NULL, NULL, &result);
         
         unsigned int archDim[5] = {cases[i].dim0, 1, 1, 1, 1};
         print_conversion_result(cases[i].name, archDim, &result);
@@ -241,8 +256,6 @@ void test_has_gap_batch() {
         
         ASSERT(ret == E_SUCCESS, "Conversion succeeds");
         ASSERT(result.hasGap == cases[i].expect_gap, cases[i].expect_gap ? "hasGap=1" : "hasGap=0");
-        
-        arch_tensor_destroy(tensor);
     }
 }
 
@@ -252,7 +265,7 @@ void test_user_constraints_batch() {
     struct {
         const char* name;
         unsigned int dim[5];
-        microarch_constraints_t constraints;
+        tensor_constraints_t constraints;
         int expect_pass;
         int expect_unit;
     } cases[] = {
@@ -287,15 +300,20 @@ void test_user_constraints_batch() {
     for (int i = 0; i < num_cases; i++) {
         printf("\n--- Case: %s ---\n", cases[i].name);
         
-        arch_tensor_t* tensor = arch_tensor_create_random();
+        tensor_descriptor_t desc;
+        unsigned int stride[5];
+        compute_arch_stride(cases[i].dim, stride);
+        
+        desc.baseAddr = 5120;
         for (int j = 0; j < 5; j++) {
-            tensor->tensorDesc.dimension[j] = cases[i].dim[j];
+            desc.dimension[j] = cases[i].dim[j];
+            desc.stride[j] = stride[j];
         }
         
-        microarch_conversion_result_t result;
+        tensor_conversion_result_t result;
         memset(&result, 0, sizeof(result));
         
-        int ret = arch_tensor_convert_with_constraints(tensor, &cases[i].constraints, NULL, &result);
+        int ret = tensor_descriptor_convert(&desc, &cases[i].constraints, NULL, &result);
         
         print_conversion_result(cases[i].name, cases[i].dim, &result);
         
@@ -307,15 +325,13 @@ void test_user_constraints_batch() {
         } else {
             ASSERT(ret == E_OVER_CONSTRAINED, "Should return constraint error");
         }
-        
-        arch_tensor_destroy(tensor);
     }
 }
 
 void test_combined_constraints_batch() {
     printf("\n=== Batch Test: Combined user + physical constraints ===\n");
     
-    microarch_physical_limits_t phys_limits = {
+    tensor_physical_limits_t phys_limits = {
         .maxPhysicalByteNum = 64,
         .maxPhysicalUnitNum = 1024,
         .maxPhysicalSliceNum = 1024,
@@ -326,7 +342,7 @@ void test_combined_constraints_batch() {
     struct {
         const char* name;
         unsigned int dim[5];
-        microarch_constraints_t user_constraints;
+        tensor_constraints_t user_constraints;
         int expect_pass;
     } cases[] = {
         {"within both", {64, 500, 1, 1, 1}, {0}, 1},
@@ -340,15 +356,20 @@ void test_combined_constraints_batch() {
     for (int i = 0; i < num_cases; i++) {
         printf("\n--- Case: %s ---\n", cases[i].name);
         
-        arch_tensor_t* tensor = arch_tensor_create_random();
+        tensor_descriptor_t desc;
+        unsigned int stride[5];
+        compute_arch_stride(cases[i].dim, stride);
+        
+        desc.baseAddr = 5120;
         for (int j = 0; j < 5; j++) {
-            tensor->tensorDesc.dimension[j] = cases[i].dim[j];
+            desc.dimension[j] = cases[i].dim[j];
+            desc.stride[j] = stride[j];
         }
         
-        microarch_conversion_result_t result;
+        tensor_conversion_result_t result;
         memset(&result, 0, sizeof(result));
         
-        int ret = arch_tensor_convert_with_constraints(tensor, &cases[i].user_constraints, &phys_limits, &result);
+        int ret = tensor_descriptor_convert(&desc, &cases[i].user_constraints, &phys_limits, &result);
         
         print_conversion_result(cases[i].name, cases[i].dim, &result);
         
@@ -357,8 +378,6 @@ void test_combined_constraints_batch() {
         } else {
             ASSERT(ret != E_SUCCESS, "Should fail");
         }
-        
-        arch_tensor_destroy(tensor);
     }
 }
 

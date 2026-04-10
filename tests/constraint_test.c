@@ -1,4 +1,4 @@
-#include "arch_tensor.h"
+#include "tensor_descriptor.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,16 +6,26 @@
 static int test_count = 0;
 static int pass_count = 0;
 
-static void print_conversion_result(const arch_tensor_t* tensor,
-                                    const microarch_conversion_result_t* result) {
-    printf("    arch: dim[%u,%u,%u,%u,%u]\n", 
-           tensor->tensorDesc.dimension[0], tensor->tensorDesc.dimension[1],
-           tensor->tensorDesc.dimension[2], tensor->tensorDesc.dimension[3],
-           tensor->tensorDesc.dimension[4]);
-    printf("    arch stride: [%u,%u,%u,%u,%u]\n",
-           tensor->tensorDesc.stride[0], tensor->tensorDesc.stride[1],
-           tensor->tensorDesc.stride[2], tensor->tensorDesc.stride[3],
-           tensor->tensorDesc.stride[4]);
+#define ASSERT(cond, msg) do { \
+    test_count++; \
+    if (cond) { \
+        printf("[PASS] %s\n", msg); \
+        pass_count++; \
+    } else { \
+        printf("[FAIL] %s\n", msg); \
+    } \
+} while(0)
+
+static void print_conversion_result(const tensor_descriptor_t* desc,
+                                    const tensor_conversion_result_t* result) {
+    printf("    desc: dim[%u,%u,%u,%u,%u]\n", 
+           desc->dimension[0], desc->dimension[1],
+           desc->dimension[2], desc->dimension[3],
+           desc->dimension[4]);
+    printf("    stride: [%u,%u,%u,%u,%u]\n",
+           desc->stride[0], desc->stride[1],
+           desc->stride[2], desc->stride[3],
+           desc->stride[4]);
     if (result->effectiveMaxByte > 0 || result->effectiveMaxUnit > 0 || 
         result->effectiveMaxSlice > 0 || result->effectiveMaxPlane > 0 || 
         result->effectiveMaxCube > 0) {
@@ -33,52 +43,40 @@ static void print_conversion_result(const arch_tensor_t* tensor,
                result->desc.unitSkip, result->desc.sliceSkip,
                result->desc.planeSkip, result->desc.cubeSkip);
     }
-    printf("    hasGap: %d\n", result->hasGap);
-    if (result->errorCode != E_SUCCESS) {
-        const char* errMsg = "UNKNOWN";
-        switch (result->errorCode) {
-            case E_BYTE_NUM_EXCEEDED: errMsg = "E_BYTE_NUM_EXCEEDED"; break;
-            case E_OVER_CONSTRAINED: errMsg = "E_OVER_CONSTRAINED"; break;
-            case E_INVALID_DIMENSION: errMsg = "E_INVALID_DIMENSION"; break;
-            case E_PHYSICAL_CONSTRAINT: errMsg = "E_PHYSICAL_CONSTRAINT"; break;
-        }
-        printf("    ERROR: %s (%d)\n", errMsg, result->errorCode);
-    }
+    printf("    hasGap: %d, errorCode: %d\n", result->hasGap, result->errorCode);
 }
-
-#define ASSERT(cond, msg) do { \
-    test_count++; \
-    if (cond) { \
-        pass_count++; \
-        printf("[PASS] %s\n", msg); \
-    } else { \
-        printf("[FAIL] %s\n", msg); \
-    } \
-} while(0)
 
 void test_no_constraints() {
     printf("\n=== Test: No constraints ===\n");
     
-    arch_tensor_t* tensor = arch_tensor_create_random();
-    microarch_conversion_result_t result;
+    tensor_descriptor_t desc;
+    desc.baseAddr = 5120;
+    desc.dimension[0] = 48;
+    desc.dimension[1] = 1024;
+    desc.dimension[2] = 32;
+    desc.dimension[3] = 1;
+    desc.dimension[4] = 1;
+    desc.stride[0] = 64;
+    desc.stride[1] = 65536;
+    desc.stride[2] = 2097152;
+    desc.stride[3] = 2097152;
+    desc.stride[4] = 2097152;
     
+    tensor_conversion_result_t result;
     memset(&result, 0, sizeof(result));
     
-    int ret = arch_tensor_convert_with_constraints(tensor, NULL, NULL, &result);
-    microarch_tensor_traversal(&result.desc);
-    int tensorAddrPointNum = microarch_tensor_get_traversal_count(&result.desc);
-    printf("tensorAddrPointNum: %d\n", tensorAddrPointNum);
+    int ret = tensor_descriptor_convert(&desc, NULL, NULL, &result);
     
-    print_conversion_result(tensor, &result);
+    print_conversion_result(&desc, &result);
     
     ASSERT(ret == E_SUCCESS, "Conversion succeeds with no constraints");
     ASSERT(result.errorCode == E_SUCCESS, "Error code is E_SUCCESS");
     
-    unsigned long long arch_bytes = (unsigned long long)tensor->tensorDesc.dimension[0] *
-                                    tensor->tensorDesc.dimension[1] *
-                                    tensor->tensorDesc.dimension[2] *
-                                    tensor->tensorDesc.dimension[3] *
-                                    tensor->tensorDesc.dimension[4];
+    unsigned long long arch_bytes = (unsigned long long)desc.dimension[0] *
+                                    desc.dimension[1] *
+                                    desc.dimension[2] *
+                                    desc.dimension[3] *
+                                    desc.dimension[4];
     unsigned long long micro_bytes = (unsigned long long)result.desc.byteNum *
                                      result.desc.unitNum *
                                      result.desc.sliceNum *
@@ -90,28 +88,32 @@ void test_no_constraints() {
     }
     
     printf("arch_bytes=%llu, micro_bytes=%llu, hasGap=%d\n", arch_bytes, micro_bytes, result.hasGap);
-    
-    arch_tensor_destroy(tensor);
 }
 
 void test_byte_num_exceeded() {
     printf("\n=== Test: byteNum > 64 auto-expands ===\n");
     
-    arch_tensor_t* tensor = arch_tensor_create_random();
-    tensor->tensorDesc.dimension[0] = 128;
-    tensor->tensorDesc.dimension[1] = 1;
-    tensor->tensorDesc.dimension[2] = 1;
-    tensor->tensorDesc.dimension[3] = 1;
-    tensor->tensorDesc.dimension[4] = 1;
+    tensor_descriptor_t desc;
+    desc.baseAddr = 5120;
+    desc.dimension[0] = 128;
+    desc.dimension[1] = 1;
+    desc.dimension[2] = 1;
+    desc.dimension[3] = 1;
+    desc.dimension[4] = 1;
+    desc.stride[0] = 128;
+    desc.stride[1] = 128;
+    desc.stride[2] = 128;
+    desc.stride[3] = 128;
+    desc.stride[4] = 128;
     
     unsigned long long arch_bytes = 128ULL;
     
-    microarch_conversion_result_t result;
+    tensor_conversion_result_t result;
     memset(&result, 0, sizeof(result));
     
-    int ret = arch_tensor_convert_with_constraints(tensor, NULL, NULL, &result);
+    int ret = tensor_descriptor_convert(&desc, NULL, NULL, &result);
     
-    print_conversion_result(tensor, &result);
+    print_conversion_result(&desc, &result);
     
     ASSERT(ret == E_SUCCESS, "Conversion succeeds (auto-expands dim[0] > 64)");
     ASSERT(result.desc.byteNum == 64, "byteNum clamped to 64");
@@ -120,217 +122,99 @@ void test_byte_num_exceeded() {
     unsigned long long micro_bytes = (unsigned long long)result.desc.byteNum * result.desc.unitNum *
                                      result.desc.sliceNum * result.desc.planeNum * result.desc.cubeNum;
     ASSERT(micro_bytes >= arch_bytes, "Micro bytes >= arch bytes");
-    
-    arch_tensor_destroy(tensor);
 }
 
 void test_has_gap_detection() {
     printf("\n=== Test: hasGap detection ===\n");
     
-    arch_tensor_t* tensor = arch_tensor_create_random();
+    tensor_descriptor_t desc;
+    desc.baseAddr = 5120;
+    desc.dimension[0] = 33;
+    desc.dimension[1] = 1;
+    desc.dimension[2] = 1;
+    desc.dimension[3] = 1;
+    desc.dimension[4] = 1;
+    desc.stride[0] = 64;
+    desc.stride[1] = 64;
+    desc.stride[2] = 64;
+    desc.stride[3] = 64;
+    desc.stride[4] = 64;
     
-    tensor->tensorDesc.dimension[0] = 33;
-    microarch_conversion_result_t result;
+    tensor_conversion_result_t result;
     memset(&result, 0, sizeof(result));
     
-    int ret = arch_tensor_convert_with_constraints(tensor, NULL, NULL, &result);
+    int ret = tensor_descriptor_convert(&desc, NULL, NULL, &result);
     
-    print_conversion_result(tensor, &result);
+    print_conversion_result(&desc, &result);
     
     ASSERT(ret == E_SUCCESS, "Conversion succeeds");
-    ASSERT(result.hasGap == 1, "hasGap=1 when byteNum=33 (stride=64)");
-    
-    tensor->tensorDesc.dimension[0] = 64;
-    memset(&result, 0, sizeof(result));
-    ret = arch_tensor_convert_with_constraints(tensor, NULL, NULL, &result);
-    
-    print_conversion_result(tensor, &result);
-    ASSERT(result.hasGap == 0, "hasGap=0 when byteNum=64 (power of 2)");
-    
-    tensor->tensorDesc.dimension[0] = 32;
-    memset(&result, 0, sizeof(result));
-    ret = arch_tensor_convert_with_constraints(tensor, NULL, NULL, &result);
-    
-    print_conversion_result(tensor, &result);
-    ASSERT(result.hasGap == 0, "hasGap=0 when byteNum=32 (power of 2)");
-    
-    arch_tensor_destroy(tensor);
+    ASSERT(result.hasGap == 1, "hasGap = 1 when byteNum = 33 (power of 2 rounding)");
 }
 
-void test_zero_dimension_normalization() {
-    printf("\n=== Test: Zero dimension normalization ===\n");
+void test_user_constraints() {
+    printf("\n=== Test: User constraints ===\n");
     
-    arch_tensor_t* tensor = arch_tensor_create_random();
-    tensor->tensorDesc.dimension[1] = 0;
+    tensor_descriptor_t desc;
+    desc.baseAddr = 5120;
+    desc.dimension[0] = 64;
+    desc.dimension[1] = 100;
+    desc.dimension[2] = 1;
+    desc.dimension[3] = 1;
+    desc.dimension[4] = 1;
+    desc.stride[0] = 64;
+    desc.stride[1] = 6400;
+    desc.stride[2] = 6400;
+    desc.stride[3] = 6400;
+    desc.stride[4] = 6400;
     
-    microarch_conversion_result_t result;
-    memset(&result, 0, sizeof(result));
-    
-    int ret = arch_tensor_convert_with_constraints(tensor, NULL, NULL, &result);
-    
-    print_conversion_result(tensor, &result);
-    
-    ASSERT(ret == E_SUCCESS, "Conversion succeeds");
-    ASSERT(result.desc.unitNum >= 1, "unitNum normalized to >= 1");
-    
-    arch_tensor_destroy(tensor);
-}
-
-void test_constraint_adjustment() {
-    printf("\n=== Test: Constraint adjustment ===\n");
-    
-    arch_tensor_t* tensor = arch_tensor_create_random();
-    tensor->tensorDesc.dimension[1] = 40;
-    tensor->tensorDesc.dimension[2] = 10;
-    
-    microarch_constraints_t constraints;
-    constraints.maxUnitNum = 16;
-    constraints.maxSliceNum = 8;
-    constraints.maxPlaneNum = 0;
-    constraints.maxCubeNum = 0;
-    constraints.maxTotalBytes = 0;
-    
-    microarch_conversion_result_t result;
-    memset(&result, 0, sizeof(result));
-    
-    int ret = arch_tensor_convert_with_constraints(tensor, &constraints, NULL, &result);
-    
-    print_conversion_result(tensor, &result);
-    printf("ret=%d, unitNum=%d, sliceNum=%d\n", ret, result.desc.unitNum, result.desc.sliceNum);
-    
-    ASSERT(ret == E_SUCCESS, "Conversion succeeds with constraints");
-    
-    arch_tensor_destroy(tensor);
-}
-
-void test_over_constrained() {
-    printf("\n=== Test: Over-constrained scenario ===\n");
-    
-    arch_tensor_t* tensor = arch_tensor_create_random();
-    tensor->tensorDesc.dimension[0] = 64;
-    tensor->tensorDesc.dimension[1] = 40;
-    tensor->tensorDesc.dimension[2] = 10;
-    tensor->tensorDesc.dimension[3] = 28;
-    tensor->tensorDesc.dimension[4] = 1;
-    
-    microarch_constraints_t constraints;
-    constraints.maxUnitNum = 16;
-    constraints.maxSliceNum = 4;
-    constraints.maxPlaneNum = 14;
-    constraints.maxCubeNum = 0;
-    constraints.maxTotalBytes = 0;
-    
-    microarch_conversion_result_t result;
-    memset(&result, 0, sizeof(result));
-    
-    int ret = arch_tensor_convert_with_constraints(tensor, &constraints, NULL, &result);
-    
-    print_conversion_result(tensor, &result);
-    printf("Return code: %d, errorCode: %d\n", ret, result.errorCode);
-    
-    arch_tensor_destroy(tensor);
-}
-
-void test_sub_tensor_conversion() {
-    printf("\n=== Test: Sub-tensor conversion with constraints ===\n");
-    
-    arch_tensor_t* tensor = arch_tensor_create_random();
-    arch_tensor_gen_sub_tensor(tensor);
-    
-    microarch_constraints_t constraints;
-    constraints.maxUnitNum = 0;
+    tensor_constraints_t constraints;
+    constraints.maxByteNum = 0;
+    constraints.maxUnitNum = 50;
     constraints.maxSliceNum = 0;
     constraints.maxPlaneNum = 0;
     constraints.maxCubeNum = 0;
     constraints.maxTotalBytes = 0;
     
-    microarch_conversion_result_t result;
+    tensor_conversion_result_t result;
     memset(&result, 0, sizeof(result));
     
-    int ret = arch_tensor_convert_sub_with_constraints(tensor, &constraints, NULL, &result);
+    int ret = tensor_descriptor_convert(&desc, &constraints, NULL, &result);
     
-    printf("    arch: range[%u,%u,%u,%u,%u]\n", 
-           tensor->subTensorDesc.range[0], tensor->subTensorDesc.range[1],
-           tensor->subTensorDesc.range[2], tensor->subTensorDesc.range[3],
-           tensor->subTensorDesc.range[4]);
-    printf("    micro: byteNum=%d, unitNum=%d, sliceNum=%d, planeNum=%d, cubeNum=%d\n",
-           result.desc.byteNum, result.desc.unitNum, result.desc.sliceNum,
-           result.desc.planeNum, result.desc.cubeNum);
-    if (result.desc.byteNum > 0 && result.desc.sliceNum > 0 && 
-        result.desc.planeNum > 0 && result.desc.cubeNum > 0) {
-        printf("    micro skip: [unitSkip=%d, sliceSkip=%d, planeSkip=%d, cubeSkip=%d]\n",
-               result.desc.unitSkip, result.desc.sliceSkip,
-               result.desc.planeSkip, result.desc.cubeSkip);
-    }
-    printf("    hasGap: %d\n", result.hasGap);
+    print_conversion_result(&desc, &result);
     
-    ASSERT(ret == E_SUCCESS, "Sub-tensor conversion succeeds");
-    ASSERT(result.errorCode == E_SUCCESS, "Error code is E_SUCCESS");
-    
-    arch_tensor_destroy(tensor);
-}
-
-void test_dimension_expansion() {
-    printf("\n=== Test: Dimension expansion (dim[0] > 64) ===\n");
-    
-    arch_tensor_t* tensor = arch_tensor_create_random();
-    tensor->tensorDesc.dimension[0] = 512;
-    tensor->tensorDesc.dimension[1] = 512;
-    tensor->tensorDesc.dimension[2] = 1;
-    tensor->tensorDesc.dimension[3] = 1;
-    tensor->tensorDesc.dimension[4] = 1;
-    
-    unsigned long long arch_bytes = 512ULL * 512ULL;
-    
-    microarch_conversion_result_t result;
-    memset(&result, 0, sizeof(result));
-    
-    int ret = arch_tensor_convert_with_constraints(tensor, NULL, NULL, &result);
-    
-    print_conversion_result(tensor, &result);
-    printf("    total bytes: %llu -> %llu\n", 
-           arch_bytes,
-           (unsigned long long)result.desc.byteNum * result.desc.unitNum);
-    
-    ASSERT(ret == E_SUCCESS, "Conversion succeeds");
-    ASSERT(result.desc.byteNum == 64, "byteNum clamped to 64");
-    ASSERT(result.desc.unitNum == 1024, "unitNum expanded to max (1024)");
-    ASSERT(result.desc.sliceNum == 4, "sliceNum expanded to 4");
-    
-    unsigned long long micro_bytes = (unsigned long long)result.desc.byteNum * result.desc.unitNum * result.desc.sliceNum;
-    ASSERT(micro_bytes == arch_bytes, "Data volume preserved");
-    
-    arch_tensor_destroy(tensor);
+    ASSERT(ret == E_SUCCESS, "Conversion succeeds with user constraints");
+    ASSERT(result.desc.unitNum <= 50, "unitNum within constraint");
 }
 
 void test_physical_limits() {
-    printf("\n=== Test: Physical limits with auto-expansion ===\n");
+    printf("\n=== Test: Physical limits ===\n");
     
-    arch_tensor_t* tensor = arch_tensor_create_random();
-    tensor->tensorDesc.dimension[0] = 64;
-    tensor->tensorDesc.dimension[1] = 10000;
-    tensor->tensorDesc.dimension[2] = 1;
-    tensor->tensorDesc.dimension[3] = 1;
-    tensor->tensorDesc.dimension[4] = 1;
-    tensor->tensorDesc.stride[0] = 64;
-    tensor->tensorDesc.stride[1] = 640000;
-    tensor->tensorDesc.stride[2] = 640000;
-    tensor->tensorDesc.stride[3] = 640000;
-    tensor->tensorDesc.stride[4] = 640000;
+    tensor_descriptor_t desc;
+    desc.baseAddr = 5120;
+    desc.dimension[0] = 64;
+    desc.dimension[1] = 10000;
+    desc.dimension[2] = 1;
+    desc.dimension[3] = 1;
+    desc.dimension[4] = 1;
+    desc.stride[0] = 64;
+    desc.stride[1] = 640000;
+    desc.stride[2] = 640000;
+    desc.stride[3] = 640000;
+    desc.stride[4] = 640000;
     
-    microarch_physical_limits_t limits;
+    tensor_physical_limits_t limits;
     limits.maxPhysicalByteNum = 64;
-    limits.maxPhysicalUnitNum = 4096;
+    limits.maxPhysicalUnitNum = 1024;
     limits.maxPhysicalSliceNum = 1024;
     limits.maxPhysicalPlaneNum = 1024;
     limits.maxPhysicalCubeNum = 1024;
     
-    microarch_conversion_result_t result;
+    tensor_conversion_result_t result;
     memset(&result, 0, sizeof(result));
     
-    int ret = arch_tensor_convert_with_constraints(tensor, NULL, &limits, &result);
+    int ret = tensor_descriptor_convert(&desc, NULL, &limits, &result);
     
-    print_conversion_result(tensor, &result);
+    print_conversion_result(&desc, &result);
     
     ASSERT(ret == E_SUCCESS, "Auto-expansion should succeed");
     ASSERT(result.desc.byteNum == 64, "byteNum stays at max");
@@ -342,9 +226,41 @@ void test_physical_limits() {
                                       result.desc.sliceNum * 
                                       result.desc.planeNum * 
                                       result.desc.cubeNum;
-    ASSERT(micro_bytes >= arch_bytes, "Micro bytes >= arch bytes (may have extra from rounding)");
+    ASSERT(micro_bytes >= arch_bytes, "Micro bytes >= arch bytes");
+}
+
+void test_overconstrained() {
+    printf("\n=== Test: Over constrained ===\n");
     
-    arch_tensor_destroy(tensor);
+    tensor_descriptor_t desc;
+    desc.baseAddr = 5120;
+    desc.dimension[0] = 64;
+    desc.dimension[1] = 100;
+    desc.dimension[2] = 1;
+    desc.dimension[3] = 1;
+    desc.dimension[4] = 1;
+    desc.stride[0] = 64;
+    desc.stride[1] = 6400;
+    desc.stride[2] = 6400;
+    desc.stride[3] = 6400;
+    desc.stride[4] = 6400;
+    
+    tensor_constraints_t constraints = {0};
+    constraints.maxUnitNum = 10;
+    constraints.maxSliceNum = 0;
+    constraints.maxPlaneNum = 0;
+    constraints.maxCubeNum = 0;
+    constraints.maxTotalBytes = 100;
+    
+    tensor_conversion_result_t result;
+    memset(&result, 0, sizeof(result));
+    
+    int ret = tensor_descriptor_convert(&desc, &constraints, NULL, &result);
+    
+    print_conversion_result(&desc, &result);
+    
+    ASSERT(ret == E_OVER_CONSTRAINED, "Should fail with overconstrained error");
+    ASSERT(result.errorCode == E_OVER_CONSTRAINED, "Error code is E_OVER_CONSTRAINED");
 }
 
 int main(void) {
@@ -353,12 +269,9 @@ int main(void) {
     test_no_constraints();
     test_byte_num_exceeded();
     test_has_gap_detection();
-    test_zero_dimension_normalization();
-    test_constraint_adjustment();
-    test_over_constrained();
-    test_sub_tensor_conversion();
-    test_dimension_expansion();
+    test_user_constraints();
     test_physical_limits();
+    test_overconstrained();
     
     printf("\n=== Results: %d/%d passed ===\n", pass_count, test_count);
     

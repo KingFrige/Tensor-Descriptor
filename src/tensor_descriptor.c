@@ -1,14 +1,141 @@
-#include "microarch_tensor.h"
+#include "tensor_descriptor.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
 
+/* ============================================================================
+ * Helper Functions
+ * ============================================================================ */
 static unsigned int gen_random_data(unsigned int max_value) {
     srand((unsigned int)time(0));
     return (rand() % max_value) + 1;
 }
 
+static unsigned int max_val(unsigned int x, unsigned int y) {
+    return (x > y) ? x : y;
+}
+
+static void compute_arch_strides(const unsigned int* dim, unsigned int* stride) {
+    stride[0] = 1 << (int)ceil(log2((double)dim[0]));
+    for (int i = 1; i < NDIM; i++) {
+        stride[i] = dim[i] * stride[i-1];
+    }
+}
+
+static int get_skip_addr(int base_addr, int skip) {
+    int raw_addr = base_addr + skip;
+    int skip_addr = raw_addr & ((1 << 22) - 1);
+    return skip_addr;
+}
+
+/* ============================================================================
+ * Module A: Architecture Tensor Implementation
+ * ============================================================================ */
+arch_tensor_t* arch_tensor_create_random(void) {
+    arch_tensor_t* tensor = (arch_tensor_t*)malloc(sizeof(arch_tensor_t));
+    if (!tensor) return NULL;
+
+    tensor->tensorDesc.baseAddr  = gen_random_data(100) * 64;
+    tensor->tensorDesc.dimension[0] = gen_random_data(64);
+    tensor->tensorDesc.dimension[1] = gen_random_data(40);
+    tensor->tensorDesc.dimension[2] = gen_random_data(10);
+    tensor->tensorDesc.dimension[3] = gen_random_data(20);
+    tensor->tensorDesc.dimension[4] = gen_random_data(6);
+
+    compute_arch_strides(tensor->tensorDesc.dimension, tensor->tensorDesc.stride);
+
+    tensor->fatherMicroarchTensor = NULL;
+    tensor->subMicroarchTensor = NULL;
+
+    return tensor;
+}
+
+void arch_tensor_destroy(arch_tensor_t* tensor) {
+    if (!tensor) return;
+    if (tensor->fatherMicroarchTensor) {
+        microarch_tensor_destroy(tensor->fatherMicroarchTensor);
+    }
+    if (tensor->subMicroarchTensor) {
+        microarch_tensor_destroy(tensor->subMicroarchTensor);
+    }
+    free(tensor);
+}
+
+void arch_tensor_gen_sub_tensor(arch_tensor_t* tensor) {
+    if (!tensor) return;
+
+    tensor->subTensorDesc.coords[0] = gen_random_data(tensor->tensorDesc.dimension[0]);
+    tensor->subTensorDesc.coords[1] = gen_random_data(tensor->tensorDesc.dimension[1]);
+    tensor->subTensorDesc.coords[2] = gen_random_data(tensor->tensorDesc.dimension[2]);
+    tensor->subTensorDesc.coords[3] = gen_random_data(tensor->tensorDesc.dimension[3]);
+    tensor->subTensorDesc.coords[4] = gen_random_data(tensor->tensorDesc.dimension[4]);
+
+    tensor->subTensorDesc.range[0]  = gen_random_data(max_val(1, tensor->tensorDesc.dimension[0] - tensor->subTensorDesc.coords[0]));
+    tensor->subTensorDesc.range[1]  = gen_random_data(max_val(1, tensor->tensorDesc.dimension[1] - tensor->subTensorDesc.coords[1]));
+    tensor->subTensorDesc.range[2]  = gen_random_data(max_val(1, tensor->tensorDesc.dimension[2] - tensor->subTensorDesc.coords[2]));
+    tensor->subTensorDesc.range[3]  = gen_random_data(max_val(1, tensor->tensorDesc.dimension[3] - tensor->subTensorDesc.coords[3]));
+    tensor->subTensorDesc.range[4]  = gen_random_data(max_val(1, tensor->tensorDesc.dimension[4] - tensor->subTensorDesc.coords[4]));
+
+    tensor->subTensorDesc.traversalStride[0] = 1;
+    tensor->subTensorDesc.traversalStride[1] = 1;
+    tensor->subTensorDesc.traversalStride[2] = 1;
+    tensor->subTensorDesc.traversalStride[3] = 1;
+    tensor->subTensorDesc.traversalStride[4] = 1;
+}
+
+int arch_tensor_convert_with_constraints(arch_tensor_t* tensor, 
+                                          const microarch_constraints_t* constraints,
+                                          const microarch_physical_limits_t* physicalLimits,
+                                          microarch_conversion_result_t* result) {
+    if (!tensor || !result) {
+        if (result) result->errorCode = E_INVALID_DIMENSION;
+        return E_INVALID_DIMENSION;
+    }
+    
+    return microarch_constraints_convert(tensor->tensorDesc.dimension,
+                                         tensor->tensorDesc.stride,
+                                         tensor->tensorDesc.baseAddr,
+                                         constraints,
+                                         physicalLimits,
+                                         result);
+}
+
+int arch_tensor_convert_sub_with_constraints(arch_tensor_t* tensor,
+                                               const microarch_constraints_t* constraints,
+                                               const microarch_physical_limits_t* physicalLimits,
+                                               microarch_conversion_result_t* result) {
+    if (!tensor || !result) {
+        if (result) result->errorCode = E_INVALID_DIMENSION;
+        return E_INVALID_DIMENSION;
+    }
+    
+    unsigned int baseAddr = tensor->subTensorDesc.coords[0] * tensor->tensorDesc.stride[0] +
+                            tensor->subTensorDesc.coords[1] * tensor->tensorDesc.stride[1] +
+                            tensor->subTensorDesc.coords[2] * tensor->tensorDesc.stride[2] +
+                            tensor->subTensorDesc.coords[3] * tensor->tensorDesc.stride[3] +
+                            tensor->subTensorDesc.coords[4] * tensor->tensorDesc.stride[4];
+    
+    int ret = microarch_constraints_convert(tensor->subTensorDesc.range,
+                                            tensor->tensorDesc.stride,
+                                            baseAddr,
+                                            constraints,
+                                            physicalLimits,
+                                            result);
+    
+    if (ret == E_SUCCESS) {
+        result->desc.unitSkip = (int)(tensor->tensorDesc.stride[0] * tensor->subTensorDesc.traversalStride[0]);
+        result->desc.sliceSkip = (int)(tensor->tensorDesc.stride[1] * tensor->subTensorDesc.traversalStride[1]);
+        result->desc.planeSkip = (int)(tensor->tensorDesc.stride[2] * tensor->subTensorDesc.traversalStride[2]);
+        result->desc.cubeSkip = (int)(tensor->tensorDesc.stride[3] * tensor->subTensorDesc.traversalStride[3]);
+    }
+    
+    return ret;
+}
+
+/* ============================================================================
+ * Module B: Microarchitecture Tensor Implementation
+ * ============================================================================ */
 microarch_tensor_t* microarch_tensor_create_random(void) {
     microarch_tensor_t* tensor = (microarch_tensor_t*)malloc(sizeof(microarch_tensor_t));
     if (!tensor) return NULL;
@@ -81,12 +208,6 @@ int microarch_tensor_get_traversal_count(const microarch_tensor_descriptor_t* de
     return desc->unitNum * desc->sliceNum * desc->planeNum * desc->cubeNum;
 }
 
-static int get_skip_addr(int base_addr, int skip) {
-    int raw_addr = base_addr + skip;
-    int skip_addr = raw_addr & ((1 << 22) - 1);
-    return skip_addr;
-}
-
 int* microarch_tensor_traversal(const microarch_tensor_descriptor_t* myTensorDesc) {
     if (!myTensorDesc) return NULL;
 
@@ -147,6 +268,9 @@ void microarch_tensor_print(const char* name, const microarch_tensor_descriptor_
     printf("\n");
 }
 
+/* ============================================================================
+ * Internal Constraint Conversion
+ * ============================================================================ */
 static void compute_effective_limits_internal(const microarch_physical_limits_t* limits,
                                                const microarch_constraints_t* constraints,
                                                unsigned int* effMaxByte,
@@ -169,6 +293,7 @@ static void compute_effective_limits_internal(const microarch_physical_limits_t*
     }
     
     if (constraints) {
+        if (constraints->maxByteNum > 0 && constraints->maxByteNum < *effMaxByte) *effMaxByte = constraints->maxByteNum;
         if (constraints->maxUnitNum > 0 && constraints->maxUnitNum < *effMaxUnit) *effMaxUnit = constraints->maxUnitNum;
         if (constraints->maxSliceNum > 0 && constraints->maxSliceNum < *effMaxSlice) *effMaxSlice = constraints->maxSliceNum;
         if (constraints->maxPlaneNum > 0 && constraints->maxPlaneNum < *effMaxPlane) *effMaxPlane = constraints->maxPlaneNum;
@@ -301,4 +426,82 @@ int microarch_constraints_convert(const unsigned int* archDim,
     result->errorCode = E_SUCCESS;
     
     return E_SUCCESS;
+}
+
+/* ============================================================================
+ * Public API Implementation
+ * ============================================================================ */
+int tensor_descriptor_convert(const tensor_descriptor_t* desc,
+                             const tensor_constraints_t* constraints,
+                             const tensor_physical_limits_t* limits,
+                             tensor_conversion_result_t* result) {
+    if (!desc || !result) {
+        if (result) result->errorCode = E_INVALID_DIMENSION;
+        return E_INVALID_DIMENSION;
+    }
+    
+    /* Convert tensor_constraints_t to microarch_constraints_t */
+    microarch_constraints_t micro_constraints = {0};
+    if (constraints) {
+        micro_constraints.maxByteNum = constraints->maxByteNum;
+        micro_constraints.maxUnitNum = constraints->maxUnitNum;
+        micro_constraints.maxSliceNum = constraints->maxSliceNum;
+        micro_constraints.maxPlaneNum = constraints->maxPlaneNum;
+        micro_constraints.maxCubeNum = constraints->maxCubeNum;
+        micro_constraints.maxTotalBytes = constraints->maxTotalBytes;
+    }
+    
+    /* Convert tensor_physical_limits_t to microarch_physical_limits_t */
+    microarch_physical_limits_t micro_limits = {0};
+    if (limits) {
+        micro_limits.maxPhysicalByteNum = limits->maxPhysicalByteNum;
+        micro_limits.maxPhysicalUnitNum = limits->maxPhysicalUnitNum;
+        micro_limits.maxPhysicalSliceNum = limits->maxPhysicalSliceNum;
+        micro_limits.maxPhysicalPlaneNum = limits->maxPhysicalPlaneNum;
+        micro_limits.maxPhysicalCubeNum = limits->maxPhysicalCubeNum;
+    }
+    
+    /* Call internal conversion */
+    microarch_conversion_result_t micro_result = {0};
+    int ret = microarch_constraints_convert(desc->dimension,
+                                            desc->stride,
+                                            desc->baseAddr,
+                                            constraints ? &micro_constraints : NULL,
+                                            limits ? &micro_limits : NULL,
+                                            &micro_result);
+    
+    /* Convert result back to tensor_conversion_result_t */
+    result->desc.baseAddr = micro_result.desc.baseAddr;
+    result->desc.byteNum = micro_result.desc.byteNum;
+    result->desc.unitNum = micro_result.desc.unitNum;
+    result->desc.sliceNum = micro_result.desc.sliceNum;
+    result->desc.planeNum = micro_result.desc.planeNum;
+    result->desc.cubeNum = micro_result.desc.cubeNum;
+    result->desc.unitSkip = micro_result.desc.unitSkip;
+    result->desc.sliceSkip = micro_result.desc.sliceSkip;
+    result->desc.planeSkip = micro_result.desc.planeSkip;
+    result->desc.cubeSkip = micro_result.desc.cubeSkip;
+    result->hasGap = micro_result.hasGap;
+    result->errorCode = micro_result.errorCode;
+    result->effectiveMaxByte = micro_result.effectiveMaxByte;
+    result->effectiveMaxUnit = micro_result.effectiveMaxUnit;
+    result->effectiveMaxSlice = micro_result.effectiveMaxSlice;
+    result->effectiveMaxPlane = micro_result.effectiveMaxPlane;
+    result->effectiveMaxCube = micro_result.effectiveMaxCube;
+    
+    return ret;
+}
+
+int tensor_descriptor_convert_sub(const tensor_descriptor_t* desc,
+                                   const tensor_constraints_t* constraints,
+                                   const tensor_physical_limits_t* limits,
+                                   tensor_conversion_result_t* result) {
+    /* TODO: Implement sub-tensor conversion using arch_tensor_convert_sub_with_constraints */
+    if (!desc || !result) {
+        if (result) result->errorCode = E_INVALID_DIMENSION;
+        return E_INVALID_DIMENSION;
+    }
+    
+    /* For now, just use the main conversion */
+    return tensor_descriptor_convert(desc, constraints, limits, result);
 }
