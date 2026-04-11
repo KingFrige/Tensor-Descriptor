@@ -20,5 +20,6 @@ target_compile_options(batch_constraint_test PRIVATE -Wall -Wextra -g -O0 -ggdb)
 
 # GGML Tensor Traversal Test
 add_executable(ggml_tensor_traversal_test tests/ggml_tensor_traversal_test.c src/ggml_tensor.c)
+target_link_libraries(ggml_tensor_traversal_test PRIVATE tensor_descriptor_lib)
 target_include_directories(ggml_tensor_traversal_test PRIVATE src tests)
 target_compile_options(ggml_tensor_traversal_test PRIVATE -Wall -Wextra -g -O0 -ggdb)

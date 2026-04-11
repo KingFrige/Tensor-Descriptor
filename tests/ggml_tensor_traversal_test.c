@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ggml_tensor.h"
+#include "tensor_descriptor.h"
 #include "ggml_tensor_test_data.inc"
 
 /* Allocate dummy data buffer for testing */
@@ -294,6 +295,117 @@ void show_tensor_summary(void) {
     printf("\n");
 }
 
+/* Test ggml_to_microarch_direct_map with all test tensors */
+void test_ggml_to_microarch_map(void) {
+    printf("\n=== Testing GGML to Microarch Direct Map ===\n\n");
+    
+    int test_limit = 20; /* Test first 20 tensors */
+    int passed = 0;
+    int tested = 0;
+    
+    for (int i = 0; i < GGML_TEST_TENSOR_COUNT && tested < test_limit; i++) {
+        const ggml_test_tensor_info_t* info = ggml_test_get_info(i);
+        if (!info) continue;
+        
+        /* Skip tensors with too many blocks for quick test */
+        int64_t blocks = (info->ne[0] + info->blck_size - 1) / info->blck_size;
+        blocks *= info->ne[1] * info->ne[2] * info->ne[3];
+        if (blocks > 100000) {
+            printf("  [%3d] %s of %s: SKIPPED (too large: %ld blocks)\n",
+                   i, info->field, info->op, (long)blocks);
+            continue;
+        }
+        
+        tested++;
+        printf("\n========================================\n");
+        printf("Tensor [%d]: %s of %s (node %d)\n", i, info->field, info->op, info->node_id);
+        printf("========================================\n");
+        
+        /* Print GGML tensor info */
+        printf("\n  [GGML Tensor Info]\n");
+        printf("  ne[4]       = [%ld, %ld, %ld, %ld]\n",
+               (long)info->ne[0], (long)info->ne[1], 
+               (long)info->ne[2], (long)info->ne[3]);
+        printf("  nb[4]       = [%zu, %zu, %zu, %zu]\n",
+               info->nb[0], info->nb[1], info->nb[2], info->nb[3]);
+        printf("  type        = %d (%s)\n", info->type, 
+               info->type == 0 ? "F32" : info->type == 1 ? "F16" : 
+               info->type == 2 ? "Q4_0" : info->type == 8 ? "Q8_0" : "OTHER");
+        printf("  type_size   = %d bytes\n", info->type_size);
+        printf("  blck_size   = %d elements\n", info->blck_size);
+        printf("  nbytes      = %d\n", info->nbytes);
+        printf("  is_view     = %d\n", info->is_view);
+        
+        /* Call ggml_to_microarch_direct_map */
+        microarch_conversion_result_t result;
+        memset(&result, 0, sizeof(result));
+        
+        int ret = ggml_to_microarch_direct_map(
+            info->ne,
+            info->nb,
+            info->type_size,
+            info->blck_size,
+            0,  /* baseAddr */
+            &result);
+        
+        if (ret != 0) {
+            printf("  [FAIL] Mapping failed with error code %d\n", ret);
+            continue;
+        }
+        
+        /* Print Microarch tensor info */
+        printf("\n  [Microarch Tensor Info]\n");
+        printf("  byteNum     = %d\n", result.desc.byteNum);
+        printf("  unitNum     = %d\n", result.desc.unitNum);
+        printf("  sliceNum    = %d\n", result.desc.sliceNum);
+        printf("  planeNum    = %d\n", result.desc.planeNum);
+        printf("  cubeNum     = %d\n", result.desc.cubeNum);
+        printf("  unitSkip    = %d\n", result.desc.unitSkip);
+        printf("  sliceSkip   = %d\n", result.desc.sliceSkip);
+        printf("  planeSkip   = %d\n", result.desc.planeSkip);
+        printf("  cubeSkip    = %d\n", result.desc.cubeSkip);
+        printf("  hasGap      = %d\n", result.hasGap);
+        printf("  errorCode   = %d\n", result.errorCode);
+        
+        /* Verify mapping correctness */
+        int ok = 1;
+        if (result.desc.byteNum != info->type_size) {
+            printf("  [FAIL] byteNum mismatch: %d vs expected %d\n", 
+                   result.desc.byteNum, info->type_size);
+            ok = 0;
+        }
+        if (result.desc.unitSkip != (int)info->nb[0]) {
+            printf("  [FAIL] unitSkip mismatch: %d vs expected %zu\n",
+                   result.desc.unitSkip, info->nb[0]);
+            ok = 0;
+        }
+        if (result.desc.sliceSkip != (int)info->nb[1]) {
+            printf("  [FAIL] sliceSkip mismatch: %d vs expected %zu\n",
+                   result.desc.sliceSkip, info->nb[1]);
+            ok = 0;
+        }
+        if (result.hasGap != 0) {
+            printf("  [FAIL] hasGap should be 0 in direct mode, got %d\n", result.hasGap);
+            ok = 0;
+        }
+        
+        if (ok) {
+            printf("  [PASS] Mapping verification passed\n");
+            passed++;
+        }
+        
+        /* Calculate memory usage */
+        int expected_memory = result.desc.unitNum * result.desc.sliceNum * 
+                              result.desc.planeNum * result.desc.cubeNum * 
+                              result.desc.unitSkip;
+        printf("  Memory usage: %d bytes\n", expected_memory);
+    }
+    
+    printf("\n========================================\n");
+    printf("GGML to Microarch Map Test: %d/%d passed\n", passed, tested);
+    printf("========================================\n");
+}
+
 int main(void) {
     printf("=================================================\n");
     printf("  GGML Tensor Traversal Test Suite\n");
@@ -305,8 +417,9 @@ int main(void) {
     test_traversal_count();
     test_all_tensors();
     test_q4_0_traversal();
+    test_ggml_to_microarch_map();
     
-    printf("=================================================\n");
+    printf("\n=================================================\n");
     printf("  Test Suite Complete\n");
     printf("=================================================\n");
     
