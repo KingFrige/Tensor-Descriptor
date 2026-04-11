@@ -72,7 +72,7 @@ def print_table(rows: list[dict]) -> None:
 
 
 def main():
-    json_path = sys.argv[1] if len(sys.argv) > 1 else "dump_cmd.json"
+    json_path = sys.argv[1] if len(sys.argv) > 1 else "../docs/qwen_tensor.json"
     path = Path(json_path)
     if not path.exists():
         print(f"Error: {json_path} not found", file=sys.stderr)

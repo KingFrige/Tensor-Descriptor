@@ -112,7 +112,6 @@ typedef struct {
     int sliceSkip;
     int planeSkip;
     int cubeSkip;
-    int hasGap;        // 是否存在内存间隙
     int errorCode;     // 错误码
     unsigned int effectiveMaxByte;
     unsigned int effectiveMaxUnit;

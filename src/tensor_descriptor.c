@@ -5,6 +5,14 @@
 /* ============================================================================
  * Internal Helper Functions
  * ============================================================================ */
+
+/* 
+ * next_power_of_2 - Calculate the next power of 2
+ * 
+ * NOTE: This function is kept for historical reasons but is no longer used
+ * in the main code path. The system now uses direct mapping without 
+ * power-of-2 alignment.
+ */
 static unsigned int next_power_of_2(unsigned int x) {
     if (x == 0) return 1;
     x--;
@@ -63,7 +71,6 @@ static void convert_constraints(const tensor_constraints_t* src,
     dst->maxCubeNum = src->maxCubeNum;
     dst->maxTotalBytes = src->maxTotalBytes;
     dst->enableBalance = src->enableBalance;
-    dst->enablePowerOf2Skip = src->enablePowerOf2Skip;
 }
 
 static void convert_physical_limits(const tensor_physical_limits_t* src,
@@ -97,7 +104,6 @@ static void copy_conversion_result(const microarch_conversion_result_t* src,
     dst->desc.cubeSkip = src->desc.cubeSkip;
     
     /* Copy other fields */
-    dst->hasGap = src->hasGap;
     dst->errorCode = src->errorCode;
     dst->effectiveMaxByte = src->effectiveMaxByte;
     dst->effectiveMaxUnit = src->effectiveMaxUnit;
@@ -123,7 +129,6 @@ static void copy_conversion_result(const microarch_conversion_result_t* src,
  * - sliceSkip = nb[1] (direct from GGML)
  * - planeSkip = nb[2] (direct from GGML)
  * - cubeSkip = nb[3] (direct from GGML)
- * - hasGap = 0 (always, since we use exact strides)
  * 
  * Parameters:
  *   ne[4]         - GGML dimensions
@@ -141,31 +146,58 @@ int ggml_to_microarch_direct_map(const int64_t* ne,
                                   int type_size,
                                   int block_size,
                                   unsigned int baseAddr,
+                                  const ggml_block_combine_config_t* combine_config,
                                   microarch_conversion_result_t* result) {
     if (!ne || !nb || !result) {
         if (result) result->errorCode = E_INVALID_DIMENSION;
         return E_INVALID_DIMENSION;
     }
     
-    /* Calculate blocks in dimension 0 */
-    int blocks_d0 = (int)((ne[0] + block_size - 1) / block_size);
+    /* Calculate total blocks in dimension 0 */
+    int total_blocks = (int)((ne[0] + block_size - 1) / block_size);
     
-    /* 5D mapping from GGML to microarch */
+    /* Determine target_byteNum */
+    int target_byteNum;
+    int max_bn = MAX_BYTE_NUM;  /* Default 64 */
+    
+    if (combine_config && combine_config->max_byteNum > 0) {
+        max_bn = combine_config->max_byteNum;
+    }
+    
+    if (combine_config && combine_config->target_byteNum > 0) {
+        /* User-specified target */
+        target_byteNum = combine_config->target_byteNum;
+        /* Ensure within bounds and aligned to type_size */
+        if (target_byteNum > max_bn) target_byteNum = max_bn;
+        target_byteNum = (target_byteNum / type_size) * type_size;
+    } else {
+        /* Auto-select: largest multiple of type_size <= max_bn */
+        target_byteNum = (max_bn / type_size) * type_size;
+    }
+    
+    /* Ensure at least one block */
+    if (target_byteNum < type_size) {
+        target_byteNum = type_size;
+    }
+    
+    /* Calculate block combine parameters */
+    int blocks_per_unit = target_byteNum / type_size;
+    int unitNum = (total_blocks + blocks_per_unit - 1) / blocks_per_unit;  /* ceil division */
+    
+    /* 5D mapping from GGML to microarch with block combine */
     result->desc.baseAddr = (int)baseAddr;
-    result->desc.byteNum = type_size;           /* e.g., 18 for Q4_0 */
-    result->desc.unitNum = blocks_d0;           /* blocks in dim0 */
+    result->desc.byteNum = target_byteNum;      /* Combined byteNum */
+    result->desc.unitNum = unitNum;             /* Combined units */
     result->desc.sliceNum = (int)ne[1];
     result->desc.planeNum = (int)ne[2];
     result->desc.cubeNum = (int)ne[3];
     
-    /* Skip mapping - direct from GGML nb values */
-    result->desc.unitSkip = (int)nb[0];
-    result->desc.sliceSkip = (int)nb[1];
-    result->desc.planeSkip = (int)nb[2];
-    result->desc.cubeSkip = (int)nb[3];
+    /* Skip mapping - combined blocks */
+    result->desc.unitSkip = blocks_per_unit * (int)nb[0];
+    result->desc.sliceSkip = result->desc.unitNum * result->desc.unitSkip;
+    result->desc.planeSkip = result->desc.sliceNum * result->desc.sliceSkip;
+    result->desc.cubeSkip = result->desc.planeNum * result->desc.planeSkip;
     
-    /* Direct mapping has no gap */
-    result->hasGap = 0;
     result->errorCode = E_SUCCESS;
     
     return E_SUCCESS;
@@ -399,30 +431,12 @@ int microarch_constraints_convert(const unsigned int* archDim,
                                      &result->effectiveMaxPlane,
                                      &result->effectiveMaxCube);
     
-    /* Calculate unitSkip based on enablePowerOf2Skip configuration
-     * enablePowerOf2Skip: 0 (default) = power-of-2 mode, 1 = direct mapping mode
-     * This ensures backward compatibility: uninitialized field defaults to power-of-2
+    /* Calculate skips using direct mapping (no power-of-2 alignment)
+     * Hardware DMA now supports non-power-of-2 skip values
      */
-    if (constraints && constraints->enablePowerOf2Skip == 1) {
-        /* Direct mapping mode: use byteNum directly */
-        result->desc.unitSkip = result->desc.byteNum;
-        result->hasGap = 0;  /* No gap in direct mapping mode */
-    } else {
-        /* Power-of-2 mode (default): align to next power-of-2 */
-        result->desc.unitSkip = (int)next_power_of_2(result->desc.byteNum);
-        
-        /* Calculate hasGap for power-of-2 mode */
-        unsigned int actualStride = next_power_of_2(dim[0]);
-        if (dim[0] == 0) {
-            result->hasGap = 0;
-        } else if (dim[0] == 1) {
-            result->hasGap = 1;
-        } else {
-            result->hasGap = (actualStride > dim[0]) ? 1 : 0;
-        }
-    }
+    result->desc.unitSkip = result->desc.byteNum;
     
-    /* Calculate upper level skips (same for both modes) */
+    /* Calculate upper level skips */
     result->desc.sliceSkip = result->desc.unitNum * result->desc.unitSkip;
     result->desc.planeSkip = result->desc.sliceNum * result->desc.sliceSkip;
     result->desc.cubeSkip = result->desc.planeNum * result->desc.planeSkip;
@@ -443,47 +457,21 @@ int tensor_descriptor_convert(const tensor_descriptor_t* desc,
         return E_INVALID_DIMENSION;
     }
     
-    int ret;
+    microarch_constraints_t micro_constraints = {0};
+    convert_constraints(constraints, &micro_constraints);
+    
+    microarch_physical_limits_t micro_limits = {0};
+    convert_physical_limits(limits, &micro_limits);
+    
     microarch_conversion_result_t micro_result = {0};
     
-    /* Route to appropriate conversion based on enablePowerOf2Skip
-     * enablePowerOf2Skip: 1 = direct mapping mode, 0/NULL = power-of-2 mode (default)
-     */
-    if (constraints && constraints->enablePowerOf2Skip == 1) {
-        /* Direct mapping mode - use GGML strides directly */
-        /* Note: For direct mode, we need to extract block_size from type
-         * For now, assume block_size = 1 for non-quantized, 32 for quantized
-         * This should be passed from the caller in a real implementation */
-        int block_size = 1;  /* Default for F32/F16 */
-        if (desc->dimension[0] <= 64 && desc->stride[0] != desc->dimension[0]) {
-            /* Heuristic: if stride differs from dimension, might be quantized */
-            block_size = desc->dimension[0];  /* Use dimension as block count */
-        }
-        
-        ret = ggml_to_microarch_direct_map(
-            (const int64_t*)desc->dimension,
-            (const size_t*)desc->stride,
-            (int)desc->dimension[0],  /* type_size approximated as dim[0] */
-            block_size,
-            desc->baseAddr,
-            &micro_result);
-    } else {
-        /* Power-of-2 mode (default) - original behavior */
-        microarch_constraints_t micro_constraints = {0};
-        convert_constraints(constraints, &micro_constraints);
-        
-        microarch_physical_limits_t micro_limits = {0};
-        convert_physical_limits(limits, &micro_limits);
-        
-        ret = microarch_constraints_convert(desc->dimension,
+    int ret = microarch_constraints_convert(desc->dimension,
                                             desc->stride,
                                             desc->baseAddr,
                                             constraints ? &micro_constraints : NULL,
                                             limits ? &micro_limits : NULL,
                                             &micro_result);
-    }
     
-    /* Copy result to output */
     copy_conversion_result(&micro_result, result);
     
     return ret;

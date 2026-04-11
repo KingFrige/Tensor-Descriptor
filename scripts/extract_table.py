@@ -5,7 +5,7 @@ import json
 
 def main():
     # 读取 JSON 文件
-    with open('dump_cmd.json', 'r', encoding='utf-8') as f:
+    with open('../docs/qwen_tensor.json', 'r', encoding='utf-8') as f:
         data = json.load(f)
     
     # 提取指定字段

@@ -336,9 +336,14 @@ void test_ggml_to_microarch_map(void) {
         printf("  nbytes      = %d\n", info->nbytes);
         printf("  is_view     = %d\n", info->is_view);
         
-        /* Call ggml_to_microarch_direct_map */
+        /* Call ggml_to_microarch_direct_map with block combine */
         microarch_conversion_result_t result;
         memset(&result, 0, sizeof(result));
+        
+        ggml_block_combine_config_t combine_config = {
+            .target_byteNum = 0,  /* Auto-select optimal */
+            .max_byteNum = 64
+        };
         
         int ret = ggml_to_microarch_direct_map(
             info->ne,
@@ -346,6 +351,7 @@ void test_ggml_to_microarch_map(void) {
             info->type_size,
             info->blck_size,
             0,  /* baseAddr */
+            &combine_config,
             &result);
         
         if (ret != 0) {
@@ -364,30 +370,43 @@ void test_ggml_to_microarch_map(void) {
         printf("  sliceSkip   = %d\n", result.desc.sliceSkip);
         printf("  planeSkip   = %d\n", result.desc.planeSkip);
         printf("  cubeSkip    = %d\n", result.desc.cubeSkip);
-        printf("  hasGap      = %d\n", result.hasGap);
+      
         printf("  errorCode   = %d\n", result.errorCode);
         
-        /* Verify mapping correctness */
+        /* Verify mapping correctness with block combine */
         int ok = 1;
-        if (result.desc.byteNum != info->type_size) {
+        
+        /* Calculate expected block combine parameters */
+        int total_blocks = (int)((info->ne[0] + info->blck_size - 1) / info->blck_size);
+        int max_bn = 64;
+        int expected_target = (max_bn / info->type_size) * info->type_size;
+        if (expected_target < info->type_size) expected_target = info->type_size;
+        int blocks_per_unit = expected_target / info->type_size;
+        int expected_unitNum = (total_blocks + blocks_per_unit - 1) / blocks_per_unit;
+        int expected_unitSkip = blocks_per_unit * (int)info->nb[0];
+        
+        /* Print block combine info */
+        printf("  Block combine: %d blocks -> %d units (target_byteNum=%d)\n",
+               total_blocks, result.desc.unitNum, result.desc.byteNum);
+        
+        if (result.desc.byteNum != expected_target) {
             printf("  [FAIL] byteNum mismatch: %d vs expected %d\n", 
-                   result.desc.byteNum, info->type_size);
+                   result.desc.byteNum, expected_target);
             ok = 0;
         }
-        if (result.desc.unitSkip != (int)info->nb[0]) {
-            printf("  [FAIL] unitSkip mismatch: %d vs expected %zu\n",
-                   result.desc.unitSkip, info->nb[0]);
+        if (result.desc.unitNum != expected_unitNum) {
+            printf("  [FAIL] unitNum mismatch: %d vs expected %d\n",
+                   result.desc.unitNum, expected_unitNum);
             ok = 0;
         }
-        if (result.desc.sliceSkip != (int)info->nb[1]) {
-            printf("  [FAIL] sliceSkip mismatch: %d vs expected %zu\n",
-                   result.desc.sliceSkip, info->nb[1]);
+        if (result.desc.unitSkip != expected_unitSkip) {
+            printf("  [FAIL] unitSkip mismatch: %d vs expected %d\n",
+                   result.desc.unitSkip, expected_unitSkip);
             ok = 0;
         }
-        if (result.hasGap != 0) {
-            printf("  [FAIL] hasGap should be 0 in direct mode, got %d\n", result.hasGap);
-            ok = 0;
-        }
+        /* Note: sliceSkip is calculated as unitNum * unitSkip in block combine mode
+         * which differs from the original GGML nb[1] value
+         */
         
         if (ok) {
             printf("  [PASS] Mapping verification passed\n");
@@ -406,6 +425,132 @@ void test_ggml_to_microarch_map(void) {
     printf("========================================\n");
 }
 
+/* Test block combine with different configurations */
+void test_block_combine_configs(void) {
+    printf("\n=== Testing Block Combine Configurations ===\n\n");
+    
+    /* Test Q4_0 with different configs */
+    int64_t ne[4] = {4096, 151936, 1, 1};
+    size_t nb[4] = {18, 2304, 350060544, 350060544};
+    int type_size = 18;
+    int block_size = 32;
+    
+    /* Test 1: Auto-select (target_byteNum = 0) */
+    printf("Test 1: Q4_0 Auto-select\n");
+    {
+        microarch_conversion_result_t result;
+        memset(&result, 0, sizeof(result));
+        
+        ggml_block_combine_config_t config = {
+            .target_byteNum = 0,  /* Auto */
+            .max_byteNum = 64
+        };
+        
+        int ret = ggml_to_microarch_direct_map(ne, nb, type_size, block_size, 0, &config, &result);
+        
+        if (ret == 0 && result.desc.byteNum == 54 && result.desc.unitNum == 43) {
+            printf("  [PASS] byteNum=54, unitNum=43 (128 blocks -> 43 units)\n");
+            printf("         Access reduction: %.1f%%\n", (1.0 - 43.0/128.0) * 100);
+        } else {
+            printf("  [FAIL] Expected byteNum=54, unitNum=43, got byteNum=%d, unitNum=%d\n",
+                   result.desc.byteNum, result.desc.unitNum);
+        }
+    }
+    
+    /* Test 2: Force target_byteNum = 36 (2 blocks per unit) */
+    printf("\nTest 2: Q4_0 Force target_byteNum=36\n");
+    {
+        microarch_conversion_result_t result;
+        memset(&result, 0, sizeof(result));
+        
+        ggml_block_combine_config_t config = {
+            .target_byteNum = 36,  /* Force 2 blocks per unit */
+            .max_byteNum = 64
+        };
+        
+        int ret = ggml_to_microarch_direct_map(ne, nb, type_size, block_size, 0, &config, &result);
+        
+        if (ret == 0 && result.desc.byteNum == 36 && result.desc.unitNum == 64) {
+            printf("  [PASS] byteNum=36, unitNum=64 (128 blocks -> 64 units)\n");
+            printf("         Access reduction: %.1f%%\n", (1.0 - 64.0/128.0) * 100);
+        } else {
+            printf("  [FAIL] Expected byteNum=36, unitNum=64, got byteNum=%d, unitNum=%d\n",
+                   result.desc.byteNum, result.desc.unitNum);
+        }
+    }
+    
+    /* Test 3: NULL config (backward compatibility) */
+    printf("\nTest 3: Q4_0 NULL config (backward compatible)\n");
+    {
+        microarch_conversion_result_t result;
+        memset(&result, 0, sizeof(result));
+        
+        int ret = ggml_to_microarch_direct_map(ne, nb, type_size, block_size, 0, NULL, &result);
+        
+        if (ret == 0 && result.desc.byteNum == 54 && result.desc.unitNum == 43) {
+            printf("  [PASS] byteNum=54, unitNum=43 (auto-selected with NULL config)\n");
+        } else {
+            printf("  [FAIL] Expected byteNum=54, unitNum=43, got byteNum=%d, unitNum=%d\n",
+                   result.desc.byteNum, result.desc.unitNum);
+        }
+    }
+    
+    /* Test 4: F32 (type_size=4) */
+    printf("\nTest 4: F32 Auto-select\n");
+    {
+        int64_t ne_f32[4] = {4096, 1, 1, 1};
+        size_t nb_f32[4] = {4, 16384, 16384, 16384};
+        
+        microarch_conversion_result_t result;
+        memset(&result, 0, sizeof(result));
+        
+        ggml_block_combine_config_t config = {
+            .target_byteNum = 0,
+            .max_byteNum = 64
+        };
+        
+        int ret = ggml_to_microarch_direct_map(ne_f32, nb_f32, 4, 1, 0, &config, &result);
+        
+        /* F32: 4096 elements, byteNum=64 means 16 elements per unit
+         * unitNum = 4096 / 16 = 256
+         */
+        if (ret == 0 && result.desc.byteNum == 64 && result.desc.unitNum == 256) {
+            printf("  [PASS] byteNum=64, unitNum=256 (4096 elements -> 256 units, 16 per unit)\n");
+        } else {
+            printf("  [FAIL] Expected byteNum=64, unitNum=256, got byteNum=%d, unitNum=%d\n",
+                   result.desc.byteNum, result.desc.unitNum);
+        }
+    }
+    
+    /* Test 5: Q8_0 (type_size=34, cannot combine) */
+    printf("\nTest 5: Q8_0 Auto-select (cannot combine)\n");
+    {
+        int64_t ne_q8[4] = {4096, 1, 1, 1};
+        size_t nb_q8[4] = {34, 139264, 139264, 139264};
+        
+        microarch_conversion_result_t result;
+        memset(&result, 0, sizeof(result));
+        
+        ggml_block_combine_config_t config = {
+            .target_byteNum = 0,
+            .max_byteNum = 64
+        };
+        
+        int ret = ggml_to_microarch_direct_map(ne_q8, nb_q8, 34, 32, 0, &config, &result);
+        
+        if (ret == 0 && result.desc.byteNum == 34 && result.desc.unitNum == 128) {
+            printf("  [PASS] byteNum=34, unitNum=128 (no combine possible, 34 > 64/2)\n");
+        } else {
+            printf("  [FAIL] Expected byteNum=34, unitNum=128, got byteNum=%d, unitNum=%d\n",
+                   result.desc.byteNum, result.desc.unitNum);
+        }
+    }
+    
+    printf("\n========================================\n");
+    printf("Block Combine Config Tests Complete\n");
+    printf("========================================\n");
+}
+
 int main(void) {
     printf("=================================================\n");
     printf("  GGML Tensor Traversal Test Suite\n");
@@ -418,6 +563,7 @@ int main(void) {
     test_all_tensors();
     test_q4_0_traversal();
     test_ggml_to_microarch_map();
+    test_block_combine_configs();
     
     printf("\n=================================================\n");
     printf("  Test Suite Complete\n");

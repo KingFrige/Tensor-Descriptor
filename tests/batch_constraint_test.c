@@ -203,27 +203,26 @@ void test_dimension_expansion_batch() {
     }
 }
 
-void test_has_gap_batch() {
-    printf("\n=== Batch Test: hasGap detection ===\n");
+void test_byte_sizes_batch() {
+    printf("\n=== Batch Test: Various byte sizes ===\n");
     
     struct {
         const char* name;
         int dim0;
-        int expect_gap;
     } cases[] = {
-        {"byteNum=1", 1, 1},
-        {"byteNum=2", 2, 0},
-        {"byteNum=3", 3, 1},
-        {"byteNum=4", 4, 0},
-        {"byteNum=7", 7, 1},
-        {"byteNum=8", 8, 0},
-        {"byteNum=15", 15, 1},
-        {"byteNum=16", 16, 0},
-        {"byteNum=31", 31, 1},
-        {"byteNum=32", 32, 0},
-        {"byteNum=33", 33, 1},
-        {"byteNum=63", 63, 1},
-        {"byteNum=64", 64, 0},
+        {"byteNum=1", 1},
+        {"byteNum=2", 2},
+        {"byteNum=3", 3},
+        {"byteNum=4", 4},
+        {"byteNum=7", 7},
+        {"byteNum=8", 8},
+        {"byteNum=15", 15},
+        {"byteNum=16", 16},
+        {"byteNum=31", 31},
+        {"byteNum=32", 32},
+        {"byteNum=33", 33},
+        {"byteNum=63", 63},
+        {"byteNum=64", 64},
     };
     
     int num_cases = sizeof(cases) / sizeof(cases[0]);
@@ -252,10 +251,9 @@ void test_has_gap_batch() {
         
         unsigned int archDim[5] = {cases[i].dim0, 1, 1, 1, 1};
         print_conversion_result(cases[i].name, archDim, &result);
-        printf("    hasGap: %d\n", result.hasGap);
         
         ASSERT(ret == E_SUCCESS, "Conversion succeeds");
-        ASSERT(result.hasGap == cases[i].expect_gap, cases[i].expect_gap ? "hasGap=1" : "hasGap=0");
+        ASSERT(result.desc.unitSkip == cases[i].dim0, "unitSkip equals byteNum");
     }
 }
 
@@ -460,7 +458,7 @@ int main(void) {
     
     test_physical_limits_batch();
     test_dimension_expansion_batch();
-    test_has_gap_batch();
+    test_byte_sizes_batch();
     test_user_constraints_batch();
     test_combined_constraints_batch();
     test_balance_batch();

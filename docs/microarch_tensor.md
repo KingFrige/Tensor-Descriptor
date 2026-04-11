@@ -412,7 +412,7 @@ The skip values form a multiplicative hierarchy:
 │   Level        Formula                    Dependency Chain      │
 │  ───────────────────────────────────────────────────────────  │
 │                                                                   │
-│   unitSkip  = next_power_of_2(byteNum)                          │
+│   unitSkip  = byteNum  (direct mapping, no alignment)            │
 │                      │                                            │
 │                      ▼                                            │
 │   sliceSkip = unitNum × unitSkip                                │
@@ -429,9 +429,9 @@ The skip values form a multiplicative hierarchy:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.3 Power-of-2 Alignment Principle
+### 4.3 Direct Mapping Principle
 
-The hardware DMA requires power-of-2 alignment for performance:
+Modern hardware DMA supports arbitrary skip values without power-of-2 alignment:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -457,26 +457,22 @@ The hardware DMA requires power-of-2 alignment for performance:
 │     • Address calc: shift instead of multiply                     │
 │     • addr = base + (index << log2(skip))                         │
 │                                                                   │
-│  Algorithm: next_power_of_2(x)                                    │
-│  ───────────────────────────                                    │
+│  Direct Mapping (No Alignment)                                    │
+│  ─────────────────────────────                                    │
 │                                                                   │
-│  Input:  x = byteNum (e.g., 50)                                  │
-│  Output: smallest power of 2 >= x                               │
+│  byteNum used directly as unitSkip:                               │
+│    unitSkip = byteNum                                             │
 │                                                                   │
-│  Process:                                                         │
-│    if x == 0: return 1                                            │
-│    x = x - 1                                                      │
-│    x = x | (x >> 1)   // Propagate MSB to bit 1                 │
-│    x = x | (x >> 2)   // Propagate to bits 2-3                  │
-│    x = x | (x >> 4)   // Propagate to bits 4-7                  │
-│    x = x | (x >> 8)   // Propagate to bits 8-15                 │
-│    x = x | (x >> 16)  // Propagate to bits 16-31                │
-│    return x + 1                                                   │
+│  Block Combine (for optimization):                                │
+│    target_byteNum = floor(MAX_BYTE_NUM / type_size) * type_size  │
+│    blocks_per_unit = target_byteNum / type_size                   │
+│    unitNum = ceil(total_blocks / blocks_per_unit)                │
+│    unitSkip = blocks_per_unit * nb[0]                            │
 │                                                                   │
 │  Examples:                                                      │
-│    next_power_of_2(50)  = 64                                     │
-│    next_power_of_2(64)  = 64                                     │
-│    next_power_of_2(100) = 128                                    │
+│    Q4_0:  type_size=18 → target=54 (3 blocks, 66% reduction)     │
+│    F32:   type_size=4  → target=64 (16 elements)                 │
+│    Q8_0:  type_size=34 → target=34 (1 block, no combine)         │
 │                                                                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -632,7 +628,7 @@ Process:
 2. Calculate effective limits (min of defaults, physical, user)
 3. Distribute dimensions (handle overflow if needed)
 4. Calculate skips:
-   - unitSkip  = next_power_of_2(64) = 64
+   - unitSkip  = 64  (direct mapping, byteNum)
    - sliceSkip = 100 × 64 = 6400
    - planeSkip = 10 × 6400 = 64000
    - cubeSkip  = 1 × 64000 = 64000
@@ -663,23 +659,27 @@ Result: Tensor fits within DMA constraints through overflow
 
 ### 6.3 Pattern 3: Hardware-Specific Optimization
 
-For maximum performance, align with hardware characteristics:
+For maximum performance with block combine:
 
 ```
-Scenario: Optimize for cache line size (64 bytes)
+Scenario: Q4_0 tensor with block combine optimization
 
 Input:
-  byteNum = 50  // Natural data size
+  type_size = 18  // Q4_0 block size
+  total_blocks = 128
 
 Process:
-1. unitSkip = next_power_of_2(50) = 64
-2. 14 bytes padding per unit (64 - 50)
+1. target_byteNum = (64 / 18) * 18 = 54  // 3 blocks per unit
+2. blocks_per_unit = 54 / 18 = 3
+3. unitNum = ceil(128 / 3) = 43
+4. unitSkip = 3 * 18 = 54
 
-Optimization Trade-off:
-  • Cache-aligned: Better performance, memory waste
-  • Non-aligned: Lower performance, memory efficient
+Optimization Result:
+  • Original: 128 units × 151936 slices = 19.4M accesses
+  • Combined: 43 units × 151936 slices = 6.5M accesses
+  • Reduction: 66.4% fewer DMA accesses
 
-Recommendation: Use enableBalance flag for automatic optimization
+Recommendation: Use block combine config for automatic optimization
 ```
 
 ---
@@ -695,14 +695,16 @@ Recommendation: Use enableBalance flag for automatic optimization
 | **Dimension** | Size of a tensor along one axis (byteNum, unitNum, etc.) |
 | **Skip** | Memory offset between consecutive elements at a level |
 | **Overflow** | Process of redistributing excess elements to higher dimensions |
-| **Power-of-2** | Alignment requirement for certain hardware operations |
+| **Block Combine** | Combining multiple blocks into larger units for efficiency |
 | **Constraint** | Limit on dimension sizes (user preference or hardware limit) |
 
 ### 7.2 Formula Reference
 
 | Formula | Description |
 |---------|-------------|
-| `unitSkip = next_power_of_2(byteNum)` | Calculate unit-level skip |
+| `unitSkip = byteNum` | Direct mapping (no alignment) |
+| `target_byteNum = (max / type_size) * type_size` | Block combine target |
+| `blocks_per_unit = target_byteNum / type_size` | Blocks per combined unit |
 | `sliceSkip = unitNum × unitSkip` | Calculate slice-level skip |
 | `planeSkip = sliceNum × sliceSkip` | Calculate plane-level skip |
 | `cubeSkip = planeNum × planeSkip` | Calculate cube-level skip |

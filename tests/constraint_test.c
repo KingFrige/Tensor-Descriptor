@@ -44,7 +44,7 @@ static void print_conversion_result(const tensor_descriptor_t* desc,
                result->desc.unitSkip, result->desc.sliceSkip,
                result->desc.planeSkip, result->desc.cubeSkip);
     }
-    printf("    hasGap: %d, errorCode: %d\n", result->hasGap, result->errorCode);
+    printf("    errorCode: %d\n", result->errorCode);
 }
 
 void test_no_constraints() {
@@ -85,11 +85,9 @@ void test_no_constraints() {
                                      result.desc.planeNum *
                                      result.desc.cubeNum;
     
-    if (result.hasGap == 0) {
-        ASSERT(arch_bytes == micro_bytes, "Data volume preserved when hasGap=0");
-    }
+    ASSERT(arch_bytes == micro_bytes, "Data volume preserved");
     
-    printf("arch_bytes=%llu, micro_bytes=%llu, hasGap=%d\n", arch_bytes, micro_bytes, result.hasGap);
+    printf("arch_bytes=%llu, micro_bytes=%llu\n", arch_bytes, micro_bytes);
 }
 
 void test_byte_num_exceeded() {
@@ -126,8 +124,8 @@ void test_byte_num_exceeded() {
     ASSERT(micro_bytes >= arch_bytes, "Micro bytes >= arch bytes");
 }
 
-void test_has_gap_detection() {
-    printf("\n=== Test: hasGap detection ===\n");
+void test_alignment_gap() {
+    printf("\n=== Test: Alignment gap (not applicable with direct mapping) ===\n");
     
     tensor_descriptor_t desc;
     desc.baseAddr = 5120;
@@ -150,7 +148,6 @@ void test_has_gap_detection() {
     print_conversion_result(&desc, &result);
     
     ASSERT(ret == E_SUCCESS, "Conversion succeeds");
-    ASSERT(result.hasGap == 1, "hasGap = 1 when byteNum = 33 (power of 2 rounding)");
 }
 
 void test_user_constraints() {
@@ -265,10 +262,10 @@ void test_overconstrained() {
     ASSERT(result.errorCode == E_OVER_CONSTRAINED, "Error code is E_OVER_CONSTRAINED");
 }
 
-void test_direct_mapping_mode() {
-    printf("\n=== Test: Direct Mapping Mode (enablePowerOf2Skip=1) ===\n");
+void test_direct_mapping() {
+    printf("\n=== Test: Direct Mapping (Q4_0-like tensor) ===\n");
     
-    /* Test Q4_0-like tensor: byteNum=18 should map to unitSkip=18 (not 32) */
+    /* Test Q4_0-like tensor: byteNum=18 should map to unitSkip=18 */
     tensor_descriptor_t desc;
     desc.baseAddr = 0;
     desc.dimension[0] = 18;  /* byteNum = 18 (like Q4_0 block size) */
@@ -282,44 +279,6 @@ void test_direct_mapping_mode() {
     desc.stride[3] = 18 * 128;
     desc.stride[4] = 18 * 128;
     
-    tensor_constraints_t constraints = {0};
-    constraints.enablePowerOf2Skip = 1;  /* Enable direct mapping mode */
-    
-    tensor_conversion_result_t result;
-    memset(&result, 0, sizeof(result));
-    
-    int ret = tensor_descriptor_convert(&desc, &constraints, NULL, &result);
-    
-    print_conversion_result(&desc, &result);
-    
-    ASSERT(ret == E_SUCCESS, "Direct mapping conversion should succeed");
-    ASSERT(result.desc.byteNum == 18, "byteNum should be 18");
-    ASSERT(result.desc.unitSkip == 18, "unitSkip should be 18 (direct mapping), not 32 (power-of-2)");
-    ASSERT(result.hasGap == 0, "hasGap should be 0 in direct mapping mode");
-    
-    /* Calculate expected memory usage */
-    int expected_memory = result.desc.unitNum * result.desc.unitSkip;
-    printf("    Memory usage: %d bytes (direct mapping saves ~44%% vs power-of-2)\n", expected_memory);
-}
-
-void test_power_of_2_mode_default() {
-    printf("\n=== Test: Power-of-2 Mode (default, enablePowerOf2Skip=0) ===\n");
-    
-    /* Same tensor as above, but with default power-of-2 mode */
-    tensor_descriptor_t desc;
-    desc.baseAddr = 0;
-    desc.dimension[0] = 18;  /* byteNum = 18 */
-    desc.dimension[1] = 128; /* unitNum = 128 blocks */
-    desc.dimension[2] = 1;
-    desc.dimension[3] = 1;
-    desc.dimension[4] = 1;
-    desc.stride[0] = 18;
-    desc.stride[1] = 18 * 128;
-    desc.stride[2] = 18 * 128;
-    desc.stride[3] = 18 * 128;
-    desc.stride[4] = 18 * 128;
-    
-    /* No constraints specified - should default to power-of-2 mode */
     tensor_conversion_result_t result;
     memset(&result, 0, sizeof(result));
     
@@ -327,13 +286,49 @@ void test_power_of_2_mode_default() {
     
     print_conversion_result(&desc, &result);
     
-    ASSERT(ret == E_SUCCESS, "Power-of-2 conversion should succeed");
+    ASSERT(ret == E_SUCCESS, "Direct mapping conversion should succeed");
     ASSERT(result.desc.byteNum == 18, "byteNum should be 18");
-    ASSERT(result.desc.unitSkip == 32, "unitSkip should be 32 (next power-of-2 of 18)");
-    ASSERT(result.hasGap == 1, "hasGap should be 1 in power-of-2 mode");
+    ASSERT(result.desc.unitSkip == 18, "unitSkip should be 18 (direct mapping)");
     
+    /* Calculate expected memory usage */
     int expected_memory = result.desc.unitNum * result.desc.unitSkip;
-    printf("    Memory usage: %d bytes (power-of-2 mode)\n", expected_memory);
+    printf("    Memory usage: %d bytes (optimal with direct mapping)\n", expected_memory);
+}
+
+void test_memory_efficiency() {
+    printf("\n=== Test: Memory Efficiency Comparison ===\n");
+    
+    /* Test different byte sizes to verify optimal memory usage */
+    int test_sizes[] = {4, 18, 32, 34, 64};
+    const char* size_names[] = {"F32", "Q4_0", "Power-of-2", "Q8_0", "Max"};
+    
+    for (int i = 0; i < 5; i++) {
+        tensor_descriptor_t desc;
+        desc.baseAddr = 0;
+        desc.dimension[0] = test_sizes[i];
+        desc.dimension[1] = 100;
+        desc.dimension[2] = 1;
+        desc.dimension[3] = 1;
+        desc.dimension[4] = 1;
+        desc.stride[0] = test_sizes[i];
+        desc.stride[1] = test_sizes[i] * 100;
+        desc.stride[2] = test_sizes[i] * 100;
+        desc.stride[3] = test_sizes[i] * 100;
+        desc.stride[4] = test_sizes[i] * 100;
+        
+        tensor_conversion_result_t result;
+        memset(&result, 0, sizeof(result));
+        
+        int ret = tensor_descriptor_convert(&desc, NULL, NULL, &result);
+        
+        if (ret == E_SUCCESS) {
+            int memory = result.desc.unitNum * result.desc.unitSkip;
+            int optimal = 100 * test_sizes[i];
+            printf("    %s (byteNum=%d): unitSkip=%d, memory=%d bytes (optimal: %d)\n",
+                   size_names[i], test_sizes[i], result.desc.unitSkip, memory, optimal);
+            ASSERT(result.desc.unitSkip == test_sizes[i], "unitSkip should equal byteNum");
+        }
+    }
 }
 
 int main(void) {
@@ -341,12 +336,12 @@ int main(void) {
     
     test_no_constraints();
     test_byte_num_exceeded();
-    test_has_gap_detection();
+    test_alignment_gap();
     test_user_constraints();
     test_physical_limits();
     test_overconstrained();
-    test_direct_mapping_mode();
-    test_power_of_2_mode_default();
+    test_direct_mapping();
+    test_memory_efficiency();
     
     printf("\n=== Results: %d/%d passed ===\n", pass_count, test_count);
     

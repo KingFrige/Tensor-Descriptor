@@ -51,7 +51,6 @@ typedef struct {
     unsigned int maxCubeNum;
     unsigned int maxTotalBytes;
     unsigned int enableBalance;
-    unsigned int enablePowerOf2Skip;  /* 0=power-of-2 skip (default/legacy), 1=direct byteNum mapping */
 } microarch_constraints_t;
 
 typedef struct {
@@ -64,7 +63,6 @@ typedef struct {
 
 typedef struct {
     microarch_tensor_descriptor_t desc;
-    int hasGap;
     int errorCode;
     unsigned int effectiveMaxByte;
     unsigned int effectiveMaxUnit;
@@ -97,7 +95,6 @@ typedef struct {
 
 typedef struct {
     tensor_conversion_descriptor_t desc;
-    int hasGap;
     int errorCode;
     unsigned int effectiveMaxByte;
     unsigned int effectiveMaxUnit;
@@ -114,7 +111,6 @@ typedef struct {
     unsigned int maxCubeNum;
     unsigned int maxTotalBytes;
     unsigned int enableBalance;
-    unsigned int enablePowerOf2Skip;  /* 0=power-of-2 skip (default/legacy), 1=direct byteNum mapping */
 } tensor_constraints_t;
 
 typedef struct {
@@ -126,6 +122,14 @@ typedef struct {
 } tensor_physical_limits_t;
 
 /* ============================================================================
+ * GGML Block Combine Configuration
+ * ============================================================================ */
+typedef struct {
+    int target_byteNum;      /* 0 = auto-select optimal, >0 = force specific value */
+    int max_byteNum;         /* Maximum allowed byteNum, default 64 (MAX_BYTE_NUM) */
+} ggml_block_combine_config_t;
+
+/* ============================================================================
  * GGML Direct Mapping Function
  * ============================================================================ */
 int ggml_to_microarch_direct_map(const int64_t* ne,
@@ -133,6 +137,7 @@ int ggml_to_microarch_direct_map(const int64_t* ne,
                                   int type_size,
                                   int block_size,
                                   unsigned int baseAddr,
+                                  const ggml_block_combine_config_t* combine_config,
                                   microarch_conversion_result_t* result);
 
 /* ============================================================================

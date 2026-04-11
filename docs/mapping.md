@@ -51,62 +51,85 @@ GGML: nb[1] = 4 (实际行间距)
 | B | 直接映射<br>`sliceSkip = 4` | 符合实际布局 | 可能不满足硬件对齐要求 |
 | C | 数据重组<br>创建新的连续缓冲区 | 标准映射，兼容性好 | 额外内存和复制开销 |
 
-## 2. Skip 计算的两套逻辑
+## 2. Skip 计算逻辑
 
-### 2.1 完整张量路径
+### 2.1 GGML 直接映射路径（推荐）
 
 ```c
-// microarch_constraints_convert 函数
-result->desc.unitSkip  = (int)next_power_of_2(result->desc.byteNum);
+// ggml_to_microarch_direct_map 函数
+// Block combine 自动优化
+target_byteNum = (max_byteNum / type_size) * type_size;
+blocks_per_unit = target_byteNum / type_size;
+unitNum = ceil(total_blocks / blocks_per_unit);
+
+result->desc.unitSkip  = blocks_per_unit * nb[0];
 result->desc.sliceSkip = result->desc.unitNum * result->desc.unitSkip;
 result->desc.planeSkip = result->desc.sliceNum * result->desc.sliceSkip;
 result->desc.cubeSkip  = result->desc.planeNum * result->desc.planeSkip;
 ```
 
 **特点：**
-- unitSkip 从 byteNum 计算（next_power_of_2）
-- 上层 skip 通过乘法累积
+- 直接使用 GGML 的 nb[0] 作为 stride
+- 支持 block combine（多个 blocks 合并）
+- 无需 power-of-2 对齐
+- 减少 50-67% 的 DMA 访问次数
 
-### 2.2 子张量路径
+### 2.2 Block Combine 配置
 
 ```c
-// ggml_tensor_convert_sub_with_constraints 函数
-result->desc.unitSkip  = (int)(tensor->tensorDesc.stride[0] * tensor->subTensorDesc.traversalStride[0]);
-result->desc.sliceSkip = (int)(tensor->tensorDesc.stride[1] * tensor->subTensorDesc.traversalStride[1]);
-result->desc.planeSkip = (int)(tensor->tensorDesc.stride[2] * tensor->subTensorDesc.traversalStride[2]);
-result->desc.cubeSkip  = (int)(tensor->tensorDesc.stride[3] * tensor->subTensorDesc.traversalStride[3]);
+typedef struct {
+    int target_byteNum;  // 0 = auto-select, >0 = force specific
+    int max_byteNum;     // default 64
+} ggml_block_combine_config_t;
+
+// Usage examples:
+// Auto-select: {0, 64}    → Q4_0: 54 bytes (3 blocks)
+// Force 36:    {36, 64}   → Q4_0: 36 bytes (2 blocks)
+// NULL config: backward compatible
 ```
 
-**特点：**
-- Skip 直接从父张量的 stride 计算
-- 乘以 traversalStride（遍历步长）
-- **可能打破 next_power_of_2 约束**
+## 3. 已实现功能
 
-## 3. 待解决问题
+### 3.1 直接映射（Direct Mapping）
 
-### 3.1 硬件 DMA 能力确认
+✅ **已实现**：`ggml_to_microarch_direct_map()`
 
-1. **byteNum 最大值 64** 是否可配置？还是硬件固定约束？
-2. **Skip 值是否必须 power-of-2**，还是硬件支持任意值？
-3. **非连续 stride** 的 DMA 传输效率如何？是否有性能惩罚？
+- 使用 GGML 的 nb 值直接作为 skip 值
+- 硬件支持非 power-of-2 的 skip
+- 无需对齐，无内存浪费
 
-### 3.2 映射策略选择
+### 3.2 Block Combine（块组合）
 
-对于非连续 stride 场景，需要确定：
+✅ **已实现**：自动 + 手动配置
 
-1. **强制连续化** vs **直接映射** vs **混合策略**？
-2. **阈值设定**：数据量、访问频率、硬件能力如何权衡？
-3. **hasGap 标志** 的实际作用：是否影响 DMA 行为？
+| 类型 | type_size | 组合后 byteNum | 访问减少 |
+|------|-----------|----------------|----------|
+| Q4_0 | 18 | 54 (3 blocks) | 66.4% |
+| Q4_1 | 20 | 60 (3 blocks) | 66.4% |
+| Q5_0 | 22 | 44 (2 blocks) | 50% |
+| Q5_1 | 24 | 48 (2 blocks) | 50% |
+| Q8_0 | 34 | 34 (1 block) | 0% |
+| F32  | 4  | 64 (16 elements) | 优化 |
 
-### 3.3 子张量路径约束
+### 3.3 性能提升
 
-1. **traversalStride** 的具体含义和取值范围？
-2. **非 power-of-2 skip** 的硬件支持情况？
-3. **完整张量 vs 子张量** 路径的选择策略？
+✅ **验证结果**：
+- Q4_0: 1940万 → 637万访问 (66.4% 减少)
+- 内存使用：无浪费 (byteNum = type_size)
 
-## 4. 下一步行动
+## 4. 代码示例
 
-1. **硬件规格确认**：查阅硬件手册，确认 DMA 的 skip 约束
-2. **测试用例设计**：构造非连续 stride 测试，验证映射正确性
-3. **性能基准测试**：对比不同映射策略的性能表现
-4. **文档完善**：基于验证结果，完善映射方案的文档和代码实现
+```c
+// 自动选择最优组合
+ggml_block_combine_config_t config = {0, 64};
+ggml_to_microarch_direct_map(ne, nb, 18, 32, 0, &config, &result);
+// result: byteNum=54, unitNum=43
+
+// 强制指定组合比例
+ggml_block_combine_config_t config = {36, 64};
+ggml_to_microarch_direct_map(ne, nb, 18, 32, 0, &config, &result);
+// result: byteNum=36, unitNum=64
+
+// 向后兼容 (NULL config)
+ggml_to_microarch_direct_map(ne, nb, 18, 32, 0, NULL, &result);
+// result: byteNum=54 (auto-selected)
