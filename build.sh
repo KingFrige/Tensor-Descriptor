@@ -50,6 +50,10 @@ function run_tests() {
     echo ""
     echo "--- batch_constraint_test ---"
     ./batch_constraint_test
+
+    echo ""
+    echo "--- ggml tensor traversal  ---"
+    ./ggml_tensor_traversal_test
     
     echo ""
     echo "=== All tests completed ==="
