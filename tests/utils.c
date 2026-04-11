@@ -19,140 +19,55 @@ static unsigned int gen_random_data(unsigned int max_value) {
     return (rand() % max_value) + 1;
 }
 
-static unsigned int max_val(unsigned int x, unsigned int y) {
-    return (x > y) ? x : y;
-}
-
-static void compute_arch_strides(const unsigned int* dim, unsigned int* stride) {
-    stride[0] = next_power_of_2(dim[0]);
-    for (int i = 1; i < NDIM; i++) {
-        stride[i] = dim[i] * stride[i-1];
-    }
-}
-
 static int get_skip_addr(int base_addr, int skip) {
     int raw_addr = base_addr + skip;
     int skip_addr = raw_addr & ((1 << 22) - 1);
     return skip_addr;
 }
 
-ggml_tensor_t* ggml_tensor_create_random(void) {
-    ggml_tensor_t* tensor = (ggml_tensor_t*)malloc(sizeof(ggml_tensor_t));
+microarch_tensor_descriptor_t* microarch_tensor_create_random(void) {
+    microarch_tensor_descriptor_t* tensor = (microarch_tensor_descriptor_t*)malloc(sizeof(microarch_tensor_descriptor_t));
     if (!tensor) return NULL;
 
-    tensor->tensorDesc.baseAddr  = gen_random_data(100) * 64;
-    tensor->tensorDesc.dimension[0] = gen_random_data(64);
-    tensor->tensorDesc.dimension[1] = gen_random_data(40);
-    tensor->tensorDesc.dimension[2] = gen_random_data(10);
-    tensor->tensorDesc.dimension[3] = gen_random_data(20);
-    tensor->tensorDesc.dimension[4] = gen_random_data(6);
+    tensor->baseAddr  = gen_random_data(100) * 64;
+    tensor->byteNum   = gen_random_data(64);
+    tensor->unitNum   = gen_random_data(40);
+    tensor->sliceNum  = gen_random_data(10);
+    tensor->planeNum  = gen_random_data(20);
+    tensor->cubeNum   = gen_random_data(6);
 
-    compute_arch_strides(tensor->tensorDesc.dimension, tensor->tensorDesc.stride);
-
-    tensor->fatherMicroarchTensor = NULL;
-    tensor->subMicroarchTensor = NULL;
+    tensor->unitSkip  = next_power_of_2(tensor->byteNum);
+    tensor->sliceSkip = tensor->unitNum * tensor->unitSkip;
+    tensor->planeSkip = tensor->sliceNum * tensor->sliceSkip;
+    tensor->cubeSkip  = tensor->planeNum * tensor->planeSkip;
 
     return tensor;
 }
 
-void ggml_tensor_destroy(ggml_tensor_t* tensor) {
-    if (!tensor) return;
-    if (tensor->fatherMicroarchTensor) {
-        microarch_tensor_destroy(tensor->fatherMicroarchTensor);
-    }
-    if (tensor->subMicroarchTensor) {
-        microarch_tensor_destroy(tensor->subMicroarchTensor);
-    }
-    free(tensor);
-}
-
-void ggml_tensor_gen_sub_tensor(ggml_tensor_t* tensor) {
-    if (!tensor) return;
-
-    tensor->subTensorDesc.coords[0] = gen_random_data(tensor->tensorDesc.dimension[0]);
-    tensor->subTensorDesc.coords[1] = gen_random_data(tensor->tensorDesc.dimension[1]);
-    tensor->subTensorDesc.coords[2] = gen_random_data(tensor->tensorDesc.dimension[2]);
-    tensor->subTensorDesc.coords[3] = gen_random_data(tensor->tensorDesc.dimension[3]);
-    tensor->subTensorDesc.coords[4] = gen_random_data(tensor->tensorDesc.dimension[4]);
-
-    tensor->subTensorDesc.range[0]  = gen_random_data(max_val(1, tensor->tensorDesc.dimension[0] - tensor->subTensorDesc.coords[0]));
-    tensor->subTensorDesc.range[1]  = gen_random_data(max_val(1, tensor->tensorDesc.dimension[1] - tensor->subTensorDesc.coords[1]));
-    tensor->subTensorDesc.range[2]  = gen_random_data(max_val(1, tensor->tensorDesc.dimension[2] - tensor->subTensorDesc.coords[2]));
-    tensor->subTensorDesc.range[3]  = gen_random_data(max_val(1, tensor->tensorDesc.dimension[3] - tensor->subTensorDesc.coords[3]));
-    tensor->subTensorDesc.range[4]  = gen_random_data(max_val(1, tensor->tensorDesc.dimension[4] - tensor->subTensorDesc.coords[4]));
-
-    tensor->subTensorDesc.traversalStride[0] = 1;
-    tensor->subTensorDesc.traversalStride[1] = 1;
-    tensor->subTensorDesc.traversalStride[2] = 1;
-    tensor->subTensorDesc.traversalStride[3] = 1;
-    tensor->subTensorDesc.traversalStride[4] = 1;
-}
-
-microarch_tensor_t* microarch_tensor_create_random(void) {
-    microarch_tensor_t* tensor = (microarch_tensor_t*)malloc(sizeof(microarch_tensor_t));
-    if (!tensor) return NULL;
-
-    tensor->tensorDesc.baseAddr  = gen_random_data(100) * 64;
-    tensor->tensorDesc.byteNum   = gen_random_data(64);
-    tensor->tensorDesc.unitNum   = gen_random_data(40);
-    tensor->tensorDesc.sliceNum  = gen_random_data(10);
-    tensor->tensorDesc.planeNum  = gen_random_data(20);
-    tensor->tensorDesc.cubeNum   = gen_random_data(6);
-
-    tensor->tensorDesc.unitSkip  = next_power_of_2(tensor->tensorDesc.byteNum);
-    tensor->tensorDesc.sliceSkip = tensor->tensorDesc.unitNum * tensor->tensorDesc.unitSkip;
-    tensor->tensorDesc.planeSkip = tensor->tensorDesc.sliceNum * tensor->tensorDesc.sliceSkip;
-    tensor->tensorDesc.cubeSkip  = tensor->tensorDesc.planeNum * tensor->tensorDesc.planeSkip;
-
-    return tensor;
-}
-
-microarch_tensor_t* microarch_tensor_create_from_desc(const microarch_tensor_descriptor_t* desc) {
+microarch_tensor_descriptor_t* microarch_tensor_create_from_desc(const microarch_tensor_descriptor_t* desc) {
     if (!desc) return NULL;
 
-    microarch_tensor_t* tensor = (microarch_tensor_t*)malloc(sizeof(microarch_tensor_t));
+    microarch_tensor_descriptor_t* tensor = (microarch_tensor_descriptor_t*)malloc(sizeof(microarch_tensor_descriptor_t));
     if (!tensor) return NULL;
 
-    tensor->tensorDesc.baseAddr  = desc->baseAddr;
-    tensor->tensorDesc.byteNum   = desc->byteNum;
-    tensor->tensorDesc.unitNum   = desc->unitNum;
-    tensor->tensorDesc.sliceNum  = desc->sliceNum;
-    tensor->tensorDesc.planeNum  = desc->planeNum;
-    tensor->tensorDesc.cubeNum   = desc->cubeNum;
-    tensor->tensorDesc.unitSkip  = desc->unitSkip;
-    tensor->tensorDesc.sliceSkip = desc->sliceSkip;
-    tensor->tensorDesc.planeSkip = desc->planeSkip;
-    tensor->tensorDesc.cubeSkip  = desc->cubeSkip;
+    tensor->baseAddr  = desc->baseAddr;
+    tensor->byteNum   = desc->byteNum;
+    tensor->unitNum   = desc->unitNum;
+    tensor->sliceNum  = desc->sliceNum;
+    tensor->planeNum  = desc->planeNum;
+    tensor->cubeNum   = desc->cubeNum;
+    tensor->unitSkip  = desc->unitSkip;
+    tensor->sliceSkip = desc->sliceSkip;
+    tensor->planeSkip = desc->planeSkip;
+    tensor->cubeSkip  = desc->cubeSkip;
 
     return tensor;
 }
 
-void microarch_tensor_destroy(microarch_tensor_t* tensor) {
+void microarch_tensor_destroy(microarch_tensor_descriptor_t* tensor) {
     if (tensor) {
         free(tensor);
     }
-}
-
-void microarch_tensor_gen_sub_tensor(microarch_tensor_t* tensor) {
-    if (!tensor) return;
-
-    tensor->subTensorDesc.baseAddr  = tensor->tensorDesc.baseAddr;
-    tensor->subTensorDesc.byteNum   = gen_random_data(tensor->tensorDesc.byteNum);
-    tensor->subTensorDesc.unitNum   = gen_random_data(tensor->tensorDesc.unitNum);
-    tensor->subTensorDesc.sliceNum  = gen_random_data(tensor->tensorDesc.sliceNum);
-    tensor->subTensorDesc.planeNum  = gen_random_data(tensor->tensorDesc.planeNum);
-    tensor->subTensorDesc.cubeNum   = gen_random_data(tensor->tensorDesc.cubeNum);
-
-    tensor->subTensorDesc.unitSkip  = tensor->tensorDesc.unitSkip;
-    tensor->subTensorDesc.sliceSkip = tensor->tensorDesc.sliceSkip;
-    tensor->subTensorDesc.planeSkip = tensor->tensorDesc.planeSkip;
-    tensor->subTensorDesc.cubeSkip  = tensor->tensorDesc.cubeSkip;
-
-    printf("tensor descriptor:\n");
-    microarch_tensor_print("tensorDesc", &tensor->tensorDesc);
-
-    printf("sub tensor descriptor:\n");
-    microarch_tensor_print("subTensorDesc", &tensor->subTensorDesc);
 }
 
 void microarch_tensor_print(const char* name, const microarch_tensor_descriptor_t* desc) {

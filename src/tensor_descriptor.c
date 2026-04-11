@@ -23,55 +23,68 @@ static int get_skip_addr(int base_addr, int skip) {
 }
 
 /* ============================================================================
- * Module A: Architecture Tensor Internal Functions
+ * GGML Direct Mapping (Non Power-of-2 Mode)
  * ============================================================================ */
-int ggml_tensor_convert_with_constraints(ggml_tensor_t* tensor, 
-                                          const microarch_constraints_t* constraints,
-                                          const microarch_physical_limits_t* physicalLimits,
-                                          microarch_conversion_result_t* result) {
-    if (!tensor || !result) {
-        if (result) result->errorCode = E_INVALID_DIMENSION;
-        return E_INVALID_DIMENSION;
-    }
-    
-    return microarch_constraints_convert(tensor->tensorDesc.dimension,
-                                         tensor->tensorDesc.stride,
-                                         tensor->tensorDesc.baseAddr,
-                                         constraints,
-                                         physicalLimits,
-                                         result);
-}
 
-int ggml_tensor_convert_sub_with_constraints(ggml_tensor_t* tensor,
-                                               const microarch_constraints_t* constraints,
-                                               const microarch_physical_limits_t* physicalLimits,
-                                               microarch_conversion_result_t* result) {
-    if (!tensor || !result) {
+/**
+ * Direct mapping from GGML tensor to microarch tensor
+ * 
+ * Maps GGML format (ne/nb) directly to microarch format without
+ * power-of-2 alignment. Uses nb values directly as skip values.
+ * 
+ * Mapping rules:
+ * - byteNum = type_size (from GGML type)
+ * - unitNum = ne[0] / block_size (blocks in dim0)
+ * - unitSkip = nb[0] (direct from GGML)
+ * - sliceSkip = nb[1] (direct from GGML)
+ * - planeSkip = nb[2] (direct from GGML)
+ * - cubeSkip = nb[3] (direct from GGML)
+ * - hasGap = 0 (always, since we use exact strides)
+ * 
+ * Parameters:
+ *   ne[4]         - GGML dimensions
+ *   nb[4]         - GGML strides in bytes
+ *   type_size     - GGML type size in bytes per block
+ *   block_size    - GGML block size in elements
+ *   baseAddr      - Base address
+ *   result        - Output conversion result
+ * 
+ * Returns:
+ *   E_SUCCESS on success, negative error code on failure
+ */
+int ggml_to_microarch_direct_map(const int64_t* ne,
+                                  const size_t* nb,
+                                  int type_size,
+                                  int block_size,
+                                  unsigned int baseAddr,
+                                  microarch_conversion_result_t* result) {
+    if (!ne || !nb || !result) {
         if (result) result->errorCode = E_INVALID_DIMENSION;
         return E_INVALID_DIMENSION;
     }
     
-    unsigned int baseAddr = tensor->subTensorDesc.coords[0] * tensor->tensorDesc.stride[0] +
-                            tensor->subTensorDesc.coords[1] * tensor->tensorDesc.stride[1] +
-                            tensor->subTensorDesc.coords[2] * tensor->tensorDesc.stride[2] +
-                            tensor->subTensorDesc.coords[3] * tensor->tensorDesc.stride[3] +
-                            tensor->subTensorDesc.coords[4] * tensor->tensorDesc.stride[4];
+    /* Calculate blocks in dimension 0 */
+    int blocks_d0 = (int)((ne[0] + block_size - 1) / block_size);
     
-    int ret = microarch_constraints_convert(tensor->subTensorDesc.range,
-                                            tensor->tensorDesc.stride,
-                                            baseAddr,
-                                            constraints,
-                                            physicalLimits,
-                                            result);
+    /* 5D mapping from GGML to microarch */
+    result->desc.baseAddr = (int)baseAddr;
+    result->desc.byteNum = type_size;           /* e.g., 18 for Q4_0 */
+    result->desc.unitNum = blocks_d0;           /* blocks in dim0 */
+    result->desc.sliceNum = (int)ne[1];
+    result->desc.planeNum = (int)ne[2];
+    result->desc.cubeNum = (int)ne[3];
     
-    if (ret == E_SUCCESS) {
-        result->desc.unitSkip = (int)(tensor->tensorDesc.stride[0] * tensor->subTensorDesc.traversalStride[0]);
-        result->desc.sliceSkip = (int)(tensor->tensorDesc.stride[1] * tensor->subTensorDesc.traversalStride[1]);
-        result->desc.planeSkip = (int)(tensor->tensorDesc.stride[2] * tensor->subTensorDesc.traversalStride[2]);
-        result->desc.cubeSkip = (int)(tensor->tensorDesc.stride[3] * tensor->subTensorDesc.traversalStride[3]);
-    }
+    /* Skip mapping - direct from GGML nb values */
+    result->desc.unitSkip = (int)nb[0];
+    result->desc.sliceSkip = (int)nb[1];
+    result->desc.planeSkip = (int)nb[2];
+    result->desc.cubeSkip = (int)nb[3];
     
-    return ret;
+    /* Direct mapping has no gap */
+    result->hasGap = 0;
+    result->errorCode = E_SUCCESS;
+    
+    return E_SUCCESS;
 }
 
 /* ============================================================================
@@ -306,19 +319,33 @@ int microarch_constraints_convert(const unsigned int* archDim,
                                      &result->effectiveMaxPlane,
                                      &result->effectiveMaxCube);
     
-    result->desc.unitSkip = (int)next_power_of_2(result->desc.byteNum);
+    /* Calculate unitSkip based on enablePowerOf2Skip configuration
+     * enablePowerOf2Skip: 0 (default) = power-of-2 mode, 1 = direct mapping mode
+     * This ensures backward compatibility: uninitialized field defaults to power-of-2
+     */
+    if (constraints && constraints->enablePowerOf2Skip == 1) {
+        /* Direct mapping mode: use byteNum directly */
+        result->desc.unitSkip = result->desc.byteNum;
+        result->hasGap = 0;  /* No gap in direct mapping mode */
+    } else {
+        /* Power-of-2 mode (default): align to next power-of-2 */
+        result->desc.unitSkip = (int)next_power_of_2(result->desc.byteNum);
+        
+        /* Calculate hasGap for power-of-2 mode */
+        unsigned int actualStride = next_power_of_2(dim[0]);
+        if (dim[0] == 0) {
+            result->hasGap = 0;
+        } else if (dim[0] == 1) {
+            result->hasGap = 1;
+        } else {
+            result->hasGap = (actualStride > dim[0]) ? 1 : 0;
+        }
+    }
+    
+    /* Calculate upper level skips (same for both modes) */
     result->desc.sliceSkip = result->desc.unitNum * result->desc.unitSkip;
     result->desc.planeSkip = result->desc.sliceNum * result->desc.sliceSkip;
     result->desc.cubeSkip = result->desc.planeNum * result->desc.planeSkip;
-    
-    unsigned int actualStride = next_power_of_2(dim[0]);
-    if (dim[0] == 0) {
-        result->hasGap = 0;
-    } else if (dim[0] == 1) {
-        result->hasGap = 1;
-    } else {
-        result->hasGap = (actualStride > dim[0]) ? 1 : 0;
-    }
     result->errorCode = E_SUCCESS;
     
     return E_SUCCESS;
@@ -336,36 +363,62 @@ int tensor_descriptor_convert(const tensor_descriptor_t* desc,
         return E_INVALID_DIMENSION;
     }
     
-    /* Convert tensor_constraints_t to microarch_constraints_t */
-    microarch_constraints_t micro_constraints = {0};
-    if (constraints) {
-        micro_constraints.maxByteNum = constraints->maxByteNum;
-        micro_constraints.maxUnitNum = constraints->maxUnitNum;
-        micro_constraints.maxSliceNum = constraints->maxSliceNum;
-        micro_constraints.maxPlaneNum = constraints->maxPlaneNum;
-        micro_constraints.maxCubeNum = constraints->maxCubeNum;
-        micro_constraints.maxTotalBytes = constraints->maxTotalBytes;
-        micro_constraints.enableBalance = constraints->enableBalance;
-    }
-    
-    /* Convert tensor_physical_limits_t to microarch_physical_limits_t */
-    microarch_physical_limits_t micro_limits = {0};
-    if (limits) {
-        micro_limits.maxPhysicalByteNum = limits->maxPhysicalByteNum;
-        micro_limits.maxPhysicalUnitNum = limits->maxPhysicalUnitNum;
-        micro_limits.maxPhysicalSliceNum = limits->maxPhysicalSliceNum;
-        micro_limits.maxPhysicalPlaneNum = limits->maxPhysicalPlaneNum;
-        micro_limits.maxPhysicalCubeNum = limits->maxPhysicalCubeNum;
-    }
-    
-    /* Call internal conversion */
+    int ret;
     microarch_conversion_result_t micro_result = {0};
-    int ret = microarch_constraints_convert(desc->dimension,
+    
+    /* Route to appropriate conversion based on enablePowerOf2Skip
+     * enablePowerOf2Skip: 1 = direct mapping mode, 0/NULL = power-of-2 mode (default)
+     */
+    if (constraints && constraints->enablePowerOf2Skip == 1) {
+        /* Direct mapping mode - use GGML strides directly */
+        /* Note: For direct mode, we need to extract block_size from type
+         * For now, assume block_size = 1 for non-quantized, 32 for quantized
+         * This should be passed from the caller in a real implementation */
+        int block_size = 1;  /* Default for F32/F16 */
+        if (desc->dimension[0] <= 64 && desc->stride[0] != desc->dimension[0]) {
+            /* Heuristic: if stride differs from dimension, might be quantized */
+            block_size = desc->dimension[0];  /* Use dimension as block count */
+        }
+        
+        ret = ggml_to_microarch_direct_map(
+            (const int64_t*)desc->dimension,
+            (const size_t*)desc->stride,
+            (int)desc->dimension[0],  /* type_size approximated as dim[0] */
+            block_size,
+            desc->baseAddr,
+            &micro_result);
+    } else {
+        /* Power-of-2 mode (default) - original behavior */
+        /* Convert tensor_constraints_t to microarch_constraints_t */
+        microarch_constraints_t micro_constraints = {0};
+        if (constraints) {
+            micro_constraints.maxByteNum = constraints->maxByteNum;
+            micro_constraints.maxUnitNum = constraints->maxUnitNum;
+            micro_constraints.maxSliceNum = constraints->maxSliceNum;
+            micro_constraints.maxPlaneNum = constraints->maxPlaneNum;
+            micro_constraints.maxCubeNum = constraints->maxCubeNum;
+            micro_constraints.maxTotalBytes = constraints->maxTotalBytes;
+            micro_constraints.enableBalance = constraints->enableBalance;
+            /* enablePowerOf2Skip is implicitly 0 here */
+        }
+        
+        /* Convert tensor_physical_limits_t to microarch_physical_limits_t */
+        microarch_physical_limits_t micro_limits = {0};
+        if (limits) {
+            micro_limits.maxPhysicalByteNum = limits->maxPhysicalByteNum;
+            micro_limits.maxPhysicalUnitNum = limits->maxPhysicalUnitNum;
+            micro_limits.maxPhysicalSliceNum = limits->maxPhysicalSliceNum;
+            micro_limits.maxPhysicalPlaneNum = limits->maxPhysicalPlaneNum;
+            micro_limits.maxPhysicalCubeNum = limits->maxPhysicalCubeNum;
+        }
+        
+        ret = microarch_constraints_convert(desc->dimension,
                                             desc->stride,
                                             desc->baseAddr,
                                             constraints ? &micro_constraints : NULL,
                                             limits ? &micro_limits : NULL,
                                             &micro_result);
+    }
     
     /* Convert result back to tensor_conversion_result_t */
     result->desc.baseAddr = micro_result.desc.baseAddr;
@@ -387,18 +440,4 @@ int tensor_descriptor_convert(const tensor_descriptor_t* desc,
     result->effectiveMaxCube = micro_result.effectiveMaxCube;
     
     return ret;
-}
-
-int tensor_descriptor_convert_sub(const tensor_descriptor_t* desc,
-                                   const tensor_constraints_t* constraints,
-                                   const tensor_physical_limits_t* limits,
-                                   tensor_conversion_result_t* result) {
-    /* TODO: Implement sub-tensor conversion using ggml_tensor_convert_sub_with_constraints */
-    if (!desc || !result) {
-        if (result) result->errorCode = E_INVALID_DIMENSION;
-        return E_INVALID_DIMENSION;
-    }
-    
-    /* For now, just use the main conversion */
-    return tensor_descriptor_convert(desc, constraints, limits, result);
 }

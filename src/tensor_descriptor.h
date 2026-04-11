@@ -2,6 +2,7 @@
 #define TENSOR_DESCRIPTOR_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #define NDIM 5
 
@@ -25,14 +26,6 @@ typedef struct {
     unsigned int dimension[NDIM];
     unsigned int stride[NDIM];
 } ggml_tensor_descriptor_t;
-
-typedef struct {
-    unsigned int coords[NDIM];
-    unsigned int range[NDIM];
-    unsigned int traversalStride[NDIM];
-} sub_ggml_tensor_descriptor_t;
-
-typedef struct ggml_tensor_t ggml_tensor_t;
 
 /* ============================================================================
  * Module B: Microarchitecture Tensor (Internal)
@@ -58,6 +51,7 @@ typedef struct {
     unsigned int maxCubeNum;
     unsigned int maxTotalBytes;
     unsigned int enableBalance;
+    unsigned int enablePowerOf2Skip;  /* 0=power-of-2 skip (default/legacy), 1=direct byteNum mapping */
 } microarch_constraints_t;
 
 typedef struct {
@@ -78,22 +72,6 @@ typedef struct {
     unsigned int effectiveMaxPlane;
     unsigned int effectiveMaxCube;
 } microarch_conversion_result_t;
-
-typedef struct microarch_tensor_t microarch_tensor_t;
-
-/* Now define the complete ggml_tensor_t */
-struct ggml_tensor_t {
-    ggml_tensor_descriptor_t tensorDesc;
-    sub_ggml_tensor_descriptor_t subTensorDesc;
-    microarch_tensor_t* fatherMicroarchTensor;
-    microarch_tensor_t* subMicroarchTensor;
-};
-
-/* Now define the complete microarch_tensor_t */
-struct microarch_tensor_t {
-    microarch_tensor_descriptor_t tensorDesc;
-    microarch_tensor_descriptor_t subTensorDesc;
-};
 
 /* ============================================================================
  * Public API Types
@@ -136,6 +114,7 @@ typedef struct {
     unsigned int maxCubeNum;
     unsigned int maxTotalBytes;
     unsigned int enableBalance;
+    unsigned int enablePowerOf2Skip;  /* 0=power-of-2 skip (default/legacy), 1=direct byteNum mapping */
 } tensor_constraints_t;
 
 typedef struct {
@@ -145,6 +124,16 @@ typedef struct {
     unsigned int maxPhysicalPlaneNum;
     unsigned int maxPhysicalCubeNum;
 } tensor_physical_limits_t;
+
+/* ============================================================================
+ * GGML Direct Mapping Function
+ * ============================================================================ */
+int ggml_to_microarch_direct_map(const int64_t* ne,
+                                  const size_t* nb,
+                                  int type_size,
+                                  int block_size,
+                                  unsigned int baseAddr,
+                                  microarch_conversion_result_t* result);
 
 /* ============================================================================
  * Internal Functions (not for direct external use)
@@ -163,10 +152,5 @@ int tensor_descriptor_convert(const tensor_descriptor_t* desc,
                                const tensor_constraints_t* constraints,
                                const tensor_physical_limits_t* limits,
                                tensor_conversion_result_t* result);
-
-int tensor_descriptor_convert_sub(const tensor_descriptor_t* desc,
-                                   const tensor_constraints_t* constraints,
-                                   const tensor_physical_limits_t* limits,
-                                   tensor_conversion_result_t* result);
 
 #endif

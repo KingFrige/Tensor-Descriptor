@@ -265,6 +265,77 @@ void test_overconstrained() {
     ASSERT(result.errorCode == E_OVER_CONSTRAINED, "Error code is E_OVER_CONSTRAINED");
 }
 
+void test_direct_mapping_mode() {
+    printf("\n=== Test: Direct Mapping Mode (enablePowerOf2Skip=1) ===\n");
+    
+    /* Test Q4_0-like tensor: byteNum=18 should map to unitSkip=18 (not 32) */
+    tensor_descriptor_t desc;
+    desc.baseAddr = 0;
+    desc.dimension[0] = 18;  /* byteNum = 18 (like Q4_0 block size) */
+    desc.dimension[1] = 128; /* unitNum = 128 blocks */
+    desc.dimension[2] = 1;
+    desc.dimension[3] = 1;
+    desc.dimension[4] = 1;
+    desc.stride[0] = 18;
+    desc.stride[1] = 18 * 128;
+    desc.stride[2] = 18 * 128;
+    desc.stride[3] = 18 * 128;
+    desc.stride[4] = 18 * 128;
+    
+    tensor_constraints_t constraints = {0};
+    constraints.enablePowerOf2Skip = 1;  /* Enable direct mapping mode */
+    
+    tensor_conversion_result_t result;
+    memset(&result, 0, sizeof(result));
+    
+    int ret = tensor_descriptor_convert(&desc, &constraints, NULL, &result);
+    
+    print_conversion_result(&desc, &result);
+    
+    ASSERT(ret == E_SUCCESS, "Direct mapping conversion should succeed");
+    ASSERT(result.desc.byteNum == 18, "byteNum should be 18");
+    ASSERT(result.desc.unitSkip == 18, "unitSkip should be 18 (direct mapping), not 32 (power-of-2)");
+    ASSERT(result.hasGap == 0, "hasGap should be 0 in direct mapping mode");
+    
+    /* Calculate expected memory usage */
+    int expected_memory = result.desc.unitNum * result.desc.unitSkip;
+    printf("    Memory usage: %d bytes (direct mapping saves ~44%% vs power-of-2)\n", expected_memory);
+}
+
+void test_power_of_2_mode_default() {
+    printf("\n=== Test: Power-of-2 Mode (default, enablePowerOf2Skip=0) ===\n");
+    
+    /* Same tensor as above, but with default power-of-2 mode */
+    tensor_descriptor_t desc;
+    desc.baseAddr = 0;
+    desc.dimension[0] = 18;  /* byteNum = 18 */
+    desc.dimension[1] = 128; /* unitNum = 128 blocks */
+    desc.dimension[2] = 1;
+    desc.dimension[3] = 1;
+    desc.dimension[4] = 1;
+    desc.stride[0] = 18;
+    desc.stride[1] = 18 * 128;
+    desc.stride[2] = 18 * 128;
+    desc.stride[3] = 18 * 128;
+    desc.stride[4] = 18 * 128;
+    
+    /* No constraints specified - should default to power-of-2 mode */
+    tensor_conversion_result_t result;
+    memset(&result, 0, sizeof(result));
+    
+    int ret = tensor_descriptor_convert(&desc, NULL, NULL, &result);
+    
+    print_conversion_result(&desc, &result);
+    
+    ASSERT(ret == E_SUCCESS, "Power-of-2 conversion should succeed");
+    ASSERT(result.desc.byteNum == 18, "byteNum should be 18");
+    ASSERT(result.desc.unitSkip == 32, "unitSkip should be 32 (next power-of-2 of 18)");
+    ASSERT(result.hasGap == 1, "hasGap should be 1 in power-of-2 mode");
+    
+    int expected_memory = result.desc.unitNum * result.desc.unitSkip;
+    printf("    Memory usage: %d bytes (power-of-2 mode)\n", expected_memory);
+}
+
 int main(void) {
     printf("=== Constraint System Tests ===\n");
     
@@ -274,6 +345,8 @@ int main(void) {
     test_user_constraints();
     test_physical_limits();
     test_overconstrained();
+    test_direct_mapping_mode();
+    test_power_of_2_mode_default();
     
     printf("\n=== Results: %d/%d passed ===\n", pass_count, test_count);
     
