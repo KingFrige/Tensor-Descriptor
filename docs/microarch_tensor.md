@@ -31,7 +31,7 @@ The microarchitecture tensor system bridges the gap between high-level tensor ab
 │                           │                                       │
 │                           ▼                                       │
 │  ┌───────────────────────────────────────────────────────────┐   │
-│  │  Layer 2: Architecture Tensor (arch_tensor)               │   │
+│  │  Layer 2: Architecture Tensor (ggml_tensor)               │   │
 │  │  - 5D tensor layout: [byte, unit, slice, plane, cube]     │   │
 │  │  - Stride-based addressing                                │   │
 │  │  - Sub-tensor support                                     │   │
@@ -157,7 +157,7 @@ The data flow through the system follows a pipeline pattern:
 │  Input                    Processing                    Output              │
 │                                                                            │
 │  ┌─────────────┐        ┌─────────────┐            ┌─────────────┐       │
-│  │  arch_tensor│───────►│  Constraint │───────────►│ microarch   │       │
+│  │  ggml_tensor│───────►│  Constraint │───────────►│ microarch   │       │
 │  │             │        │  Resolution │            │ _tensor     │       │
 │  │ 5D layout  │        │             │            │             │       │
 │  └─────────────┘        └─────────────┘            └─────────────┘       │

@@ -36,8 +36,8 @@ static int get_skip_addr(int base_addr, int skip) {
     return skip_addr;
 }
 
-arch_tensor_t* arch_tensor_create_random(void) {
-    arch_tensor_t* tensor = (arch_tensor_t*)malloc(sizeof(arch_tensor_t));
+ggml_tensor_t* ggml_tensor_create_random(void) {
+    ggml_tensor_t* tensor = (ggml_tensor_t*)malloc(sizeof(ggml_tensor_t));
     if (!tensor) return NULL;
 
     tensor->tensorDesc.baseAddr  = gen_random_data(100) * 64;
@@ -55,7 +55,7 @@ arch_tensor_t* arch_tensor_create_random(void) {
     return tensor;
 }
 
-void arch_tensor_destroy(arch_tensor_t* tensor) {
+void ggml_tensor_destroy(ggml_tensor_t* tensor) {
     if (!tensor) return;
     if (tensor->fatherMicroarchTensor) {
         microarch_tensor_destroy(tensor->fatherMicroarchTensor);
@@ -66,7 +66,7 @@ void arch_tensor_destroy(arch_tensor_t* tensor) {
     free(tensor);
 }
 
-void arch_tensor_gen_sub_tensor(arch_tensor_t* tensor) {
+void ggml_tensor_gen_sub_tensor(ggml_tensor_t* tensor) {
     if (!tensor) return;
 
     tensor->subTensorDesc.coords[0] = gen_random_data(tensor->tensorDesc.dimension[0]);

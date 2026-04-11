@@ -95,7 +95,7 @@ Two-level tensor representation system:
 ```
 tensor_descriptor_convert()
     ↓
-arch_tensor_convert_with_constraints()
+ggml_tensor_convert_with_constraints()
     ↓
 microarch_constraints_convert()
     ↓
@@ -129,7 +129,7 @@ cubeSkip  = planeNum * planeSkip;
 ### Test Utilities (`tests/utils.c`)
 
 Helper functions for creating test tensors:
-- `arch_tensor_create_random()` - Random architecture tensor
+- `ggml_tensor_create_random()` - Random architecture tensor
 - `microarch_tensor_create_random()` - Random microarchitecture tensor
 - `microarch_tensor_traversal()` - Generate traversal pattern for verification
 

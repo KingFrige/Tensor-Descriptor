@@ -36,7 +36,7 @@ make
 ┌─────────────────────────────────────────────────────────────┐
 │                  测试工具 (tests/)                        │
 │              utils.c / utils.h                           │
-│    - arch_tensor_create_random()                        │
+│    - ggml_tensor_create_random()                        │
 │    - microarch_tensor_create_random()                  │
 │    - microarch_tensor_traversal()                      │
 └─────────────────────────────────────────────────────────────┘

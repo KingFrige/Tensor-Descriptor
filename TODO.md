@@ -1,16 +1,23 @@
 # TODO
 
-1. 读取 assets/tensor_engine_v1.5.html 固定章节：
-   - 4.8. dma unit
-1. assets/tensor_streaming_accelerator_architecture.html
-   - 3.6.1. data structure description
+1. 深入理解 llama.cpp 中ggml_tensor
+  - 文档： docs/ggml_tensor.md
+  - tmp/llama.cpp/ggml/src/ggml-common.h
+  - tmp/llama.cpp/ggml/include/ggml.h
 
-1. microarch 一个简单功能描述： assets/model_spec.md
+1. 深入理解 microarch_tensor: docs/microarch_tensor.md
 
-1. 根据代码中microarch_tensor 的实现，理解microarch
+1. 深入理解 ggml_tensor 相关例子:
+  - assets/qwen_tensor.txt
+  - assets/ggml_tensors_qwen3_models.json
+1. 深入理解 src下的代码
 
 ## 需求
 
-1. 上述文档是 microarch的部分描述
-1. 根据上述资料，整理microarch_tensor 的描述文档，生成到 docs/microarch_tensor.md
 
+
+## 测试
+
+1. ggml_tensor 例子：
+  - assets/qwen_tensor.txt
+  - assets/ggml_tensors_qwen3_models.json

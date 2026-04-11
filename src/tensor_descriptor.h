@@ -24,15 +24,15 @@ typedef struct {
     unsigned int baseAddr;
     unsigned int dimension[NDIM];
     unsigned int stride[NDIM];
-} arch_tensor_descriptor_t;
+} ggml_tensor_descriptor_t;
 
 typedef struct {
     unsigned int coords[NDIM];
     unsigned int range[NDIM];
     unsigned int traversalStride[NDIM];
-} sub_arch_tensor_descriptor_t;
+} sub_ggml_tensor_descriptor_t;
 
-typedef struct arch_tensor_t arch_tensor_t;
+typedef struct ggml_tensor_t ggml_tensor_t;
 
 /* ============================================================================
  * Module B: Microarchitecture Tensor (Internal)
@@ -81,10 +81,10 @@ typedef struct {
 
 typedef struct microarch_tensor_t microarch_tensor_t;
 
-/* Now define the complete arch_tensor_t */
-struct arch_tensor_t {
-    arch_tensor_descriptor_t tensorDesc;
-    sub_arch_tensor_descriptor_t subTensorDesc;
+/* Now define the complete ggml_tensor_t */
+struct ggml_tensor_t {
+    ggml_tensor_descriptor_t tensorDesc;
+    sub_ggml_tensor_descriptor_t subTensorDesc;
     microarch_tensor_t* fatherMicroarchTensor;
     microarch_tensor_t* subMicroarchTensor;
 };

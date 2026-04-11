@@ -25,7 +25,7 @@ static int get_skip_addr(int base_addr, int skip) {
 /* ============================================================================
  * Module A: Architecture Tensor Internal Functions
  * ============================================================================ */
-int arch_tensor_convert_with_constraints(arch_tensor_t* tensor, 
+int ggml_tensor_convert_with_constraints(ggml_tensor_t* tensor, 
                                           const microarch_constraints_t* constraints,
                                           const microarch_physical_limits_t* physicalLimits,
                                           microarch_conversion_result_t* result) {
@@ -42,7 +42,7 @@ int arch_tensor_convert_with_constraints(arch_tensor_t* tensor,
                                          result);
 }
 
-int arch_tensor_convert_sub_with_constraints(arch_tensor_t* tensor,
+int ggml_tensor_convert_sub_with_constraints(ggml_tensor_t* tensor,
                                                const microarch_constraints_t* constraints,
                                                const microarch_physical_limits_t* physicalLimits,
                                                microarch_conversion_result_t* result) {
@@ -393,7 +393,7 @@ int tensor_descriptor_convert_sub(const tensor_descriptor_t* desc,
                                    const tensor_constraints_t* constraints,
                                    const tensor_physical_limits_t* limits,
                                    tensor_conversion_result_t* result) {
-    /* TODO: Implement sub-tensor conversion using arch_tensor_convert_sub_with_constraints */
+    /* TODO: Implement sub-tensor conversion using ggml_tensor_convert_sub_with_constraints */
     if (!desc || !result) {
         if (result) result->errorCode = E_INVALID_DIMENSION;
         return E_INVALID_DIMENSION;
