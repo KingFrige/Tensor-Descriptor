@@ -23,6 +23,90 @@ static int get_skip_addr(int base_addr, int skip) {
 }
 
 /* ============================================================================
+ * Lookup Tables for Dimension Limits
+ * ============================================================================ */
+static const size_t constraints_offset_table[] = {
+    0,  /* placeholder for index 0 */
+    offsetof(microarch_constraints_t, maxUnitNum),
+    offsetof(microarch_constraints_t, maxSliceNum),
+    offsetof(microarch_constraints_t, maxPlaneNum),
+    offsetof(microarch_constraints_t, maxCubeNum)
+};
+
+static const size_t physical_limits_offset_table[] = {
+    0,  /* placeholder for index 0 */
+    offsetof(microarch_physical_limits_t, maxPhysicalUnitNum),
+    offsetof(microarch_physical_limits_t, maxPhysicalSliceNum),
+    offsetof(microarch_physical_limits_t, maxPhysicalPlaneNum),
+    offsetof(microarch_physical_limits_t, maxPhysicalCubeNum)
+};
+
+static const unsigned int default_limits_table[] = {
+    0,                 /* placeholder for index 0 */
+    DEFAULT_MAX_UNIT,
+    DEFAULT_MAX_SLICE,
+    DEFAULT_MAX_PLANE,
+    DEFAULT_MAX_CUBE
+};
+
+/* ============================================================================
+ * Constraint Conversion Helper
+ * ============================================================================ */
+static void convert_constraints(const tensor_constraints_t* src,
+                                microarch_constraints_t* dst) {
+    if (!src || !dst) return;
+    
+    dst->maxByteNum = src->maxByteNum;
+    dst->maxUnitNum = src->maxUnitNum;
+    dst->maxSliceNum = src->maxSliceNum;
+    dst->maxPlaneNum = src->maxPlaneNum;
+    dst->maxCubeNum = src->maxCubeNum;
+    dst->maxTotalBytes = src->maxTotalBytes;
+    dst->enableBalance = src->enableBalance;
+    dst->enablePowerOf2Skip = src->enablePowerOf2Skip;
+}
+
+static void convert_physical_limits(const tensor_physical_limits_t* src,
+                                    microarch_physical_limits_t* dst) {
+    if (!src || !dst) return;
+    
+    dst->maxPhysicalByteNum = src->maxPhysicalByteNum;
+    dst->maxPhysicalUnitNum = src->maxPhysicalUnitNum;
+    dst->maxPhysicalSliceNum = src->maxPhysicalSliceNum;
+    dst->maxPhysicalPlaneNum = src->maxPhysicalPlaneNum;
+    dst->maxPhysicalCubeNum = src->maxPhysicalCubeNum;
+}
+
+/* ============================================================================
+ * Result Copy Helper
+ * ============================================================================ */
+static void copy_conversion_result(const microarch_conversion_result_t* src,
+                                   tensor_conversion_result_t* dst) {
+    if (!src || !dst) return;
+    
+    /* Copy descriptor fields individually */
+    dst->desc.baseAddr = src->desc.baseAddr;
+    dst->desc.byteNum = src->desc.byteNum;
+    dst->desc.unitNum = src->desc.unitNum;
+    dst->desc.sliceNum = src->desc.sliceNum;
+    dst->desc.planeNum = src->desc.planeNum;
+    dst->desc.cubeNum = src->desc.cubeNum;
+    dst->desc.unitSkip = src->desc.unitSkip;
+    dst->desc.sliceSkip = src->desc.sliceSkip;
+    dst->desc.planeSkip = src->desc.planeSkip;
+    dst->desc.cubeSkip = src->desc.cubeSkip;
+    
+    /* Copy other fields */
+    dst->hasGap = src->hasGap;
+    dst->errorCode = src->errorCode;
+    dst->effectiveMaxByte = src->effectiveMaxByte;
+    dst->effectiveMaxUnit = src->effectiveMaxUnit;
+    dst->effectiveMaxSlice = src->effectiveMaxSlice;
+    dst->effectiveMaxPlane = src->effectiveMaxPlane;
+    dst->effectiveMaxCube = src->effectiveMaxCube;
+}
+
+/* ============================================================================
  * GGML Direct Mapping (Non Power-of-2 Mode)
  * ============================================================================ */
 
@@ -184,32 +268,28 @@ static void expand_for_physical_limits(unsigned int* dim,
     dim[4] = newDim[4];
 }
 
-static unsigned int get_limit_value(int dimIndex, 
+static unsigned int get_limit_value(int dimIndex,
                                     const microarch_physical_limits_t* limits,
                                     const microarch_constraints_t* constraints) {
-    unsigned int physicalLimit = 0;
-    switch(dimIndex) {
-        case 1: physicalLimit = limits ? limits->maxPhysicalUnitNum : DEFAULT_MAX_UNIT; break;
-        case 2: physicalLimit = limits ? limits->maxPhysicalSliceNum : DEFAULT_MAX_SLICE; break;
-        case 3: physicalLimit = limits ? limits->maxPhysicalPlaneNum : DEFAULT_MAX_PLANE; break;
-        case 4: physicalLimit = limits ? limits->maxPhysicalCubeNum : DEFAULT_MAX_CUBE; break;
-        default: physicalLimit = DEFAULT_MAX_UNIT;
+    if (dimIndex < 1 || dimIndex > 4) return DEFAULT_MAX_UNIT;
+    
+    /* Get physical limit using lookup table */
+    unsigned int physicalLimit;
+    if (limits) {
+        physicalLimit = *(const unsigned int*)((const char*)limits + 
+                          physical_limits_offset_table[dimIndex]);
+    } else {
+        physicalLimit = default_limits_table[dimIndex];
     }
     
+    /* Get user constraint using lookup table */
     unsigned int userLimit = 0;
     if (constraints) {
-        switch(dimIndex) {
-            case 1: userLimit = constraints->maxUnitNum; break;
-            case 2: userLimit = constraints->maxSliceNum; break;
-            case 3: userLimit = constraints->maxPlaneNum; break;
-            case 4: userLimit = constraints->maxCubeNum; break;
-        }
+        userLimit = *(const unsigned int*)((const char*)constraints + 
+                     constraints_offset_table[dimIndex]);
     }
     
-    if (userLimit > 0 && userLimit < physicalLimit) {
-        return userLimit;
-    }
-    return physicalLimit;
+    return (userLimit > 0 && userLimit < physicalLimit) ? userLimit : physicalLimit;
 }
 
 static int get_highest_dim_used(const unsigned int* dim) {
@@ -389,28 +469,11 @@ int tensor_descriptor_convert(const tensor_descriptor_t* desc,
             &micro_result);
     } else {
         /* Power-of-2 mode (default) - original behavior */
-        /* Convert tensor_constraints_t to microarch_constraints_t */
         microarch_constraints_t micro_constraints = {0};
-        if (constraints) {
-            micro_constraints.maxByteNum = constraints->maxByteNum;
-            micro_constraints.maxUnitNum = constraints->maxUnitNum;
-            micro_constraints.maxSliceNum = constraints->maxSliceNum;
-            micro_constraints.maxPlaneNum = constraints->maxPlaneNum;
-            micro_constraints.maxCubeNum = constraints->maxCubeNum;
-            micro_constraints.maxTotalBytes = constraints->maxTotalBytes;
-            micro_constraints.enableBalance = constraints->enableBalance;
-            /* enablePowerOf2Skip is implicitly 0 here */
-        }
+        convert_constraints(constraints, &micro_constraints);
         
-        /* Convert tensor_physical_limits_t to microarch_physical_limits_t */
         microarch_physical_limits_t micro_limits = {0};
-        if (limits) {
-            micro_limits.maxPhysicalByteNum = limits->maxPhysicalByteNum;
-            micro_limits.maxPhysicalUnitNum = limits->maxPhysicalUnitNum;
-            micro_limits.maxPhysicalSliceNum = limits->maxPhysicalSliceNum;
-            micro_limits.maxPhysicalPlaneNum = limits->maxPhysicalPlaneNum;
-            micro_limits.maxPhysicalCubeNum = limits->maxPhysicalCubeNum;
-        }
+        convert_physical_limits(limits, &micro_limits);
         
         ret = microarch_constraints_convert(desc->dimension,
                                             desc->stride,
@@ -420,24 +483,8 @@ int tensor_descriptor_convert(const tensor_descriptor_t* desc,
                                             &micro_result);
     }
     
-    /* Convert result back to tensor_conversion_result_t */
-    result->desc.baseAddr = micro_result.desc.baseAddr;
-    result->desc.byteNum = micro_result.desc.byteNum;
-    result->desc.unitNum = micro_result.desc.unitNum;
-    result->desc.sliceNum = micro_result.desc.sliceNum;
-    result->desc.planeNum = micro_result.desc.planeNum;
-    result->desc.cubeNum = micro_result.desc.cubeNum;
-    result->desc.unitSkip = micro_result.desc.unitSkip;
-    result->desc.sliceSkip = micro_result.desc.sliceSkip;
-    result->desc.planeSkip = micro_result.desc.planeSkip;
-    result->desc.cubeSkip = micro_result.desc.cubeSkip;
-    result->hasGap = micro_result.hasGap;
-    result->errorCode = micro_result.errorCode;
-    result->effectiveMaxByte = micro_result.effectiveMaxByte;
-    result->effectiveMaxUnit = micro_result.effectiveMaxUnit;
-    result->effectiveMaxSlice = micro_result.effectiveMaxSlice;
-    result->effectiveMaxPlane = micro_result.effectiveMaxPlane;
-    result->effectiveMaxCube = micro_result.effectiveMaxCube;
+    /* Copy result to output */
+    copy_conversion_result(&micro_result, result);
     
     return ret;
 }
