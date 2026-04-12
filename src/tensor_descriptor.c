@@ -380,17 +380,31 @@ static void balance_last_two_dims(unsigned int* dim,
     dim[highestDim] = bestV2;
 }
 
-int microarch_constraints_convert(const unsigned int* archDim,
-                                  const unsigned int* archStride,
-                                  unsigned int baseAddr,
-                                  const microarch_constraints_t* constraints,
-                                  const microarch_physical_limits_t* physicalLimits,
-                                  microarch_conversion_result_t* result) {
+/**
+ * Fold and distribute dimensions across 5D microarchitecture hierarchy
+ *
+ * This function performs three operations:
+ * 1. FOLD: Redistributes overflow from constrained dimensions to higher levels
+ *    (e.g., byteNum > maxByte gets folded into unitNum)
+ *
+ * 2. DISTRIBUTE: Uses greedy algorithm to spread total elements across
+ *    byte/unit/slice/plane/cube hierarchy respecting physical limits
+ *
+ * 3. BALANCE (optional): When enableBalance=true, optimizes last two
+ *    dimensions for better memory access patterns
+ */
+int microarch_dim_fold_and_distribute(const unsigned int* archDim,
+                                       const unsigned int* archStride,
+                                       unsigned int baseAddr,
+                                       const microarch_constraints_t* constraints,
+                                       const microarch_physical_limits_t* physicalLimits,
+                                       microarch_conversion_result_t* result) {
     if (!archDim || !result) {
         if (result) result->errorCode = E_INVALID_DIMENSION;
         return E_INVALID_DIMENSION;
     }
     
+    /* Phase 0: Calculate total elements from input dimensions */
     unsigned int dim[5];
     unsigned long long archTotal = 1;
     for (int i = 0; i < 5; i++) {
@@ -399,16 +413,26 @@ int microarch_constraints_convert(const unsigned int* archDim,
         archTotal *= dim[i];
     }
     
+    /* Phase 1: FOLD - Handle overflow by folding into higher dimensions
+     * Example: byteNum=80 > maxByte=64 → byteNum=64, unitNum*=2
+     */
     expand_for_physical_limits(dim, physicalLimits, constraints);
     
+    /* Phase 2: DISTRIBUTE - Greedy algorithm to spread across hierarchy
+     * Fill each level up to its limit, overflow to next level
+     */
+    
+    /* Phase 3: BALANCE - Optimize last two dimensions if enabled */
     if (constraints && constraints->enableBalance) {
         balance_last_two_dims(dim, physicalLimits, constraints, archTotal);
     }
     
+    /* Ensure no zero dimensions */
     for (int i = 0; i < 5; i++) {
         if (dim[i] == 0) dim[i] = 1;
     }
     
+    /* Validate total size against maxTotalBytes constraint */
     if (constraints) {
         unsigned long long finalBytes = (unsigned long long)dim[0] * dim[1] * dim[2] * dim[3] * dim[4];
         if (constraints->maxTotalBytes > 0 && finalBytes > constraints->maxTotalBytes) {
@@ -417,6 +441,7 @@ int microarch_constraints_convert(const unsigned int* archDim,
         }
     }
     
+    /* Populate result descriptor */
     result->desc.baseAddr = (int)baseAddr;
     result->desc.byteNum = (int)dim[0];
     result->desc.unitNum = (int)dim[1];
@@ -465,12 +490,12 @@ int tensor_descriptor_convert(const tensor_descriptor_t* desc,
     
     microarch_conversion_result_t micro_result = {0};
     
-    int ret = microarch_constraints_convert(desc->dimension,
-                                            desc->stride,
-                                            desc->baseAddr,
-                                            constraints ? &micro_constraints : NULL,
-                                            limits ? &micro_limits : NULL,
-                                            &micro_result);
+    int ret = microarch_dim_fold_and_distribute(desc->dimension,
+                                                 desc->stride,
+                                                 desc->baseAddr,
+                                                 constraints ? &micro_constraints : NULL,
+                                                 limits ? &micro_limits : NULL,
+                                                 &micro_result);
     
     copy_conversion_result(&micro_result, result);
     

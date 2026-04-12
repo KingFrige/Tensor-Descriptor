@@ -143,12 +143,25 @@ int ggml_to_microarch_direct_map(const int64_t* ne,
 /* ============================================================================
  * Internal Functions (not for direct external use)
  * ============================================================================ */
-int microarch_constraints_convert(const unsigned int* archDim,
-                                   const unsigned int* archStride,
-                                   unsigned int baseAddr,
-                                   const microarch_constraints_t* constraints,
-                                   const microarch_physical_limits_t* physicalLimits,
-                                   microarch_conversion_result_t* result);
+/**
+ * Fold and distribute dimensions across 5D microarchitecture hierarchy
+ *
+ * This function performs three operations:
+ * 1. FOLD: Redistributes overflow from constrained dimensions to higher levels
+ *    (e.g., byteNum > maxByte gets folded into unitNum)
+ *
+ * 2. DISTRIBUTE: Uses greedy algorithm to spread total elements across
+ *    byte/unit/slice/plane/cube hierarchy respecting physical limits
+ *
+ * 3. BALANCE (optional): When enableBalance=true, optimizes last two
+ *    dimensions for better memory access patterns
+ */
+int microarch_dim_fold_and_distribute(const unsigned int* archDim,
+                                       const unsigned int* archStride,
+                                       unsigned int baseAddr,
+                                       const microarch_constraints_t* constraints,
+                                       const microarch_physical_limits_t* physicalLimits,
+                                       microarch_conversion_result_t* result);
 
 /* ============================================================================
  * Public API
